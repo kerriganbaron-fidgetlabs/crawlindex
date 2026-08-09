@@ -2,13 +2,13 @@
  {
   "day": "2026-08-09",
   "totalDomains": 5006,
-  "observed": 3676,
-  "meanScore": 63.82,
+  "observed": 3678,
+  "meanScore": 69.87,
   "blockingAnyTier1": 661,
   "blockingAllTier1": 158,
   "llmsTxt": 448,
   "agentsMd": 27,
-  "refusedGptbot": 952,
+  "refusedGptbot": 953,
   "paymentRequired": 12,
   "perBot": {
    "GPTBot": 549,
@@ -36,6 +36,10 @@
    "FirecrawlAgent": 210
   },
   "perPlatform": {
+   "wordpress": {
+    "total": 298,
+    "blocking": 52
+   },
    "nextjs": {
     "total": 295,
     "blocking": 48
@@ -45,20 +49,12 @@
     "blocking": 2
    },
    "aem": {
-    "total": 155,
+    "total": 156,
     "blocking": 6
    },
-   "wordpress": {
-    "total": 299,
-    "blocking": 52
-   },
    "nuxt": {
-    "total": 56,
-    "blocking": 3
-   },
-   "woocommerce": {
-    "total": 25,
-    "blocking": 1
+    "total": 57,
+    "blocking": 4
    },
    "gatsby": {
     "total": 11,
@@ -76,13 +72,13 @@
     "total": 16,
     "blocking": 0
    },
-   "framer": {
-    "total": 9,
-    "blocking": 0
-   },
    "astro": {
     "total": 20,
     "blocking": 3
+   },
+   "framer": {
+    "total": 9,
+    "blocking": 0
    },
    "wix": {
     "total": 6,
@@ -90,6 +86,10 @@
    },
    "typo3": {
     "total": 10,
+    "blocking": 0
+   },
+   "woocommerce": {
+    "total": 24,
     "blocking": 0
    },
    "drupal": {
@@ -150,13 +150,13 @@
    }
   },
   "perNetwork": {
-   "fastly": {
-    "total": 221,
-    "blocking": 55
-   },
    "cloudflare": {
     "total": 1076,
     "blocking": 188
+   },
+   "fastly": {
+    "total": 222,
+    "blocking": 55
    },
    "cloudfront": {
     "total": 424,
@@ -171,11 +171,11 @@
     "blocking": 1
    },
    "akamai": {
-    "total": 308,
+    "total": 307,
     "blocking": 44
    },
    "imperva": {
-    "total": 15,
+    "total": 14,
     "blocking": 2
    },
    "google": {

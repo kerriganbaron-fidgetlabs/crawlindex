@@ -3,7 +3,7 @@
   "domain": "0123tt.ru",
   "rank": 2112,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 0,
   "excluded": null
  },
  {
@@ -45,7 +45,7 @@
   "domain": "123tt.ru",
   "rank": 2116,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -101,14 +101,14 @@
   "domain": "182682.xyz",
   "rank": 3564,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 0,
   "excluded": null
  },
  {
   "domain": "189.cn",
   "rank": 4626,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -178,7 +178,7 @@
   "domain": "1rx.io",
   "rank": 695,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -234,14 +234,14 @@
   "domain": "2kcoretech.online",
   "rank": 4656,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
   "domain": "2mdn.net",
   "rank": 443,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -255,7 +255,7 @@
   "domain": "2o7.net",
   "rank": 3821,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -283,7 +283,7 @@
   "domain": "360qhcdn.com",
   "rank": 5109,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -325,7 +325,7 @@
   "domain": "3gppnetwork.org",
   "rank": 162,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -346,7 +346,7 @@
   "domain": "4dex.io",
   "rank": 965,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -423,14 +423,14 @@
   "domain": "6sc.co",
   "rank": 4027,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
   "domain": "9ffyu1g9c.com",
   "rank": 1400,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -458,14 +458,14 @@
   "domain": "a-msedge.net",
   "rank": 736,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
   "domain": "a-mx.com",
   "rank": 2292,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -479,7 +479,7 @@
   "domain": "a1q7.net",
   "rank": 4535,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -493,7 +493,7 @@
   "domain": "a2z.com",
   "rank": 110,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -514,7 +514,7 @@
   "domain": "aadrm.com",
   "rank": 1985,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -535,14 +535,14 @@
   "domain": "aarki.net",
   "rank": 4059,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
   "domain": "aarnet.net.au",
   "rank": 4631,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -731,7 +731,7 @@
   "domain": "ack.de",
   "rank": 339,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -752,7 +752,7 @@
   "domain": "acoustic-adm.com",
   "rank": 3072,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -801,7 +801,7 @@
   "domain": "acuityplatform.com",
   "rank": 3178,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
@@ -829,7 +829,7 @@
   "domain": "ad-tech.ru",
   "rank": 1088,
   "firstSeen": "2026-08-09T16:29:27.428Z",
-  "consecutiveFailures": 1,
+  "consecutiveFailures": 2,
   "excluded": null
  },
  {
