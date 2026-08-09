@@ -18,10 +18,10 @@
 
 import { AGENTS, LIVE_TEST_AGENTS, REGISTRY_VERSION, TIER1, TIER2 } from './agents';
 import { politeFetch, PROBE_TOKEN, type FetchOutcome } from './http';
-import { EMPTY_ROBOTS, isAgentAllowed, parseRobots, type ParsedRobots } from './robots';
+import { EMPTY_ROBOTS, isAgentAllowed, isAgentNamed, parseRobots, type ParsedRobots } from './robots';
 import type { AccessMap, Observation } from './types';
 
-export const PROBE_VERSION = '1.2.0';
+export const PROBE_VERSION = '1.3.0';
 
 const LOOKS_LIKE_HTML = /^\s*(<!doctype html|<html|<\?xml|\{|\[)/i;
 
@@ -221,8 +221,43 @@ export async function probeDomain(domain: string): Promise<Observation> {
     ).map((a) => a.token),
   };
 
-  if (!isAgentAllowed(robotsParsed, PROBE_TOKEN, '/')) {
+  // Two different things look identical to a naive allow-check, and conflating them
+  // biases the whole index.
+  //
+  //  * A group that NAMES CrawlIndexBot and denies it is a deliberate opt-out from this
+  //    project. Record nothing and leave the index.
+  //  * A blanket `User-agent: * / Disallow: /` is a site telling every crawler to stay
+  //    out. We still honour it by fetching no pages, but robots.txt is public and we
+  //    already have it, so its access policy is reported. Dropping these sites entirely
+  //    would quietly remove the most restrictive operators on the web from every
+  //    aggregate about restrictiveness.
+  const namedAndDenied =
+    isAgentNamed(robotsParsed, PROBE_TOKEN) && !isAgentAllowed(robotsParsed, PROBE_TOKEN, '/');
+
+  if (namedAndDenied) {
     return base({ reachable: true, optedOut: true, robots: robotsSummary });
+  }
+
+  const accessFromRobots = (): AccessMap => {
+    const m: AccessMap = {};
+    for (const a of AGENTS) m[a.token] = isAgentAllowed(robotsParsed, a.token, '/');
+    return m;
+  };
+
+  if (!isAgentAllowed(robotsParsed, PROBE_TOKEN, '/')) {
+    const acc = accessFromRobots();
+    return base({
+      reachable: true,
+      robots: robotsSummary,
+      access: acc,
+      tier1Blocked: TIER1.filter((a) => !acc[a.token]).map((a) => a.token),
+      tier2Blocked: TIER2.filter((a) => !acc[a.token]).map((a) => a.token),
+      control: {
+        challenged: true,
+        reason: 'robots.txt disallows all crawlers at the site root, so no page was fetched.',
+        kind: 'robots-restricted',
+      },
+    });
   }
 
   // --- 2. homepage as a browser (the control) ------------------------------

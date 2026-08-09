@@ -36,7 +36,7 @@ export type Observation = {
      * "this publisher charges agents for access" is a different fact about the web than
      * "this publisher blocks agents", and the two should never be averaged together.
      */
-    kind: 'none' | 'bot-challenge' | 'payment-required';
+    kind: 'none' | 'bot-challenge' | 'payment-required' | 'robots-restricted';
   };
 
   robots: {
