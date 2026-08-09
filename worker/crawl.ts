@@ -22,6 +22,7 @@ import { assertWrote, serviceClient } from './env';
 type ExistingRow = {
   domain: string;
   observed_at: string | null;
+  probe_version: string | null;
   score: number | null;
   reachable: boolean | null;
   consecutive_failures: number;
@@ -50,6 +51,10 @@ function diff(prev: ExistingRow | undefined, obs: Observation, score: Score): Ch
   // site that already blocks a crawler would announce itself as "now blocks GPTBot" on
   // the night we first look at it, and the change feed would be worthless.
   if (!prev || !prev.observed_at) return [];
+
+  // Comparing across probe versions attributes our own methodology changes to the site.
+  // Skip one night rather than publish a change nobody made.
+  if (prev.probe_version !== obs.probeVersion) return [];
   const out: Change[] = [];
 
   if (prev.reachable !== null && prev.reachable !== obs.reachable) {
@@ -125,6 +130,7 @@ function rowFor(obs: Observation, score: Score, prev: ExistingRow | undefined) {
 
   return {
     consecutive_failures: failures,
+    probe_version: obs.probeVersion,
     indexable: !obs.optedOut && !demoted,
     excluded_reason: excludedReason,
     domain: obs.domain,
@@ -224,7 +230,7 @@ async function main() {
   // this the crawler silently works on the first 1000 rows forever and the rest of the
   // corpus is never measured.
   const COLS =
-    'domain, observed_at, score, reachable, consecutive_failures, tier1_blocked, llms_txt, agents_md, cloaking';
+    'domain, observed_at, probe_version, score, reachable, consecutive_failures, tier1_blocked, llms_txt, agents_md, cloaking';
   const PAGE = 1000;
   const targets: ExistingRow[] = [];
 
