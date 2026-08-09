@@ -1,0 +1,13 @@
+node_modules
+.next
+out
+.env
+.env.local
+.env*.local
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+data/tranco*.csv
+data/tranco*.zip
+.DS_Store
+.secrets/

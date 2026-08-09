@@ -1,0 +1,97 @@
+@import 'tailwindcss';
+
+/*
+  CrawlIndex visual language.
+
+  This is a reference index, so it is built to read like one: a warm paper ground,
+  high-contrast ink, a single rust accent, and tabular figures everywhere a number
+  appears so columns line up when you scan them. Deliberately not a SaaS landing page.
+
+  Every token below is checked against WCAG 2.1 AA on its own ground.
+*/
+
+@theme {
+  --color-paper: #fbfaf7;
+  --color-raised: #f4f2ec;
+  --color-ink: #1a1813;
+  --color-muted: #5e5b52;
+  --color-rule: #e0ddd2;
+  --color-accent: #a33d17;
+  --color-accent-soft: #f3e6df;
+
+  --color-good: #1f6b45;
+  --color-warn: #8a5a06;
+  --color-bad: #a32020;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+  --font-serif: ui-serif, Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-paper: #14130f;
+    --color-raised: #1e1c17;
+    --color-ink: #edeae1;
+    --color-muted: #a8a399;
+    --color-rule: #302d26;
+    --color-accent: #e8875a;
+    --color-accent-soft: #2a1f18;
+
+    --color-good: #6cc396;
+    --color-warn: #e0ad51;
+    --color-bad: #f08a8a;
+  }
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Numbers in this project are meant to be compared, so they must not shift width. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* A visible, high-contrast focus ring everywhere, not just on inputs. */
+:where(a, button, input, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* The skip link is off-screen until focused, then lands in the top-left. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+}
+.skip-link:focus {
+  left: 0.5rem;
+  top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
