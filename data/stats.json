@@ -1,55 +1,55 @@
 [
  {
   "day": "2026-08-09",
-  "totalDomains": 5006,
-  "observed": 3678,
-  "meanScore": 69.87,
-  "blockingAnyTier1": 661,
-  "blockingAllTier1": 158,
-  "llmsTxt": 448,
-  "agentsMd": 27,
-  "refusedGptbot": 953,
-  "paymentRequired": 12,
+  "totalDomains": 4984,
+  "observed": 3633,
+  "meanScore": 64.43,
+  "blockingAnyTier1": 651,
+  "blockingAllTier1": 157,
+  "llmsTxt": 445,
+  "agentsMd": 28,
+  "refusedGptbot": 811,
+  "paymentRequired": 11,
   "perBot": {
-   "GPTBot": 549,
-   "OAI-SearchBot": 262,
-   "ChatGPT-User": 324,
-   "ClaudeBot": 529,
+   "GPTBot": 547,
+   "OAI-SearchBot": 260,
+   "ChatGPT-User": 321,
+   "ClaudeBot": 522,
    "Claude-User": 266,
-   "Claude-SearchBot": 262,
-   "PerplexityBot": 383,
-   "Perplexity-User": 274,
-   "Google-Extended": 478,
-   "Applebot-Extended": 456,
-   "meta-externalagent": 493,
-   "CCBot": 585,
-   "Amazonbot": 445,
-   "Bytespider": 548,
-   "cohere-ai": 386,
+   "Claude-SearchBot": 260,
+   "PerplexityBot": 376,
+   "Perplexity-User": 273,
+   "Google-Extended": 473,
+   "Applebot-Extended": 447,
+   "meta-externalagent": 485,
+   "CCBot": 574,
+   "Amazonbot": 439,
+   "Bytespider": 538,
+   "cohere-ai": 378,
    "MistralAI-User": 258,
-   "YouBot": 331,
-   "DuckAssistBot": 276,
-   "kagi-fetcher": 169,
-   "Diffbot": 387,
-   "Google-NotebookLM": 191,
-   "TavilyBot": 199,
-   "FirecrawlAgent": 210
+   "YouBot": 327,
+   "DuckAssistBot": 274,
+   "kagi-fetcher": 167,
+   "Diffbot": 375,
+   "Google-NotebookLM": 188,
+   "TavilyBot": 197,
+   "FirecrawlAgent": 206
   },
   "perPlatform": {
+   "nextjs": {
+    "total": 280,
+    "blocking": 43
+   },
    "wordpress": {
-    "total": 298,
+    "total": 300,
     "blocking": 52
    },
-   "nextjs": {
-    "total": 295,
-    "blocking": 48
-   },
    "contentful": {
-    "total": 53,
-    "blocking": 2
+    "total": 50,
+    "blocking": 1
    },
    "aem": {
-    "total": 156,
+    "total": 130,
     "blocking": 6
    },
    "nuxt": {
@@ -61,23 +61,23 @@
     "blocking": 1
    },
    "sitecore": {
-    "total": 15,
+    "total": 9,
     "blocking": 0
    },
    "hubspot": {
-    "total": 78,
+    "total": 80,
     "blocking": 3
    },
    "webflow": {
-    "total": 16,
+    "total": 19,
     "blocking": 0
    },
    "astro": {
-    "total": 20,
+    "total": 21,
     "blocking": 3
    },
    "framer": {
-    "total": 9,
+    "total": 10,
     "blocking": 0
    },
    "wix": {
@@ -88,16 +88,12 @@
     "total": 10,
     "blocking": 0
    },
-   "woocommerce": {
-    "total": 24,
-    "blocking": 0
-   },
    "drupal": {
-    "total": 120,
-    "blocking": 4
+    "total": 114,
+    "blocking": 2
    },
    "sanity": {
-    "total": 29,
+    "total": 30,
     "blocking": 3
    },
    "shopify": {
@@ -124,16 +120,12 @@
     "total": 1,
     "blocking": 1
    },
-   "commercetools": {
-    "total": 3,
-    "blocking": 0
-   },
    "remix": {
     "total": 3,
     "blocking": 1
    },
    "joomla": {
-    "total": 3,
+    "total": 4,
     "blocking": 0
    },
    "sveltekit": {
@@ -147,20 +139,24 @@
    "squarespace": {
     "total": 1,
     "blocking": 0
+   },
+   "woocommerce": {
+    "total": 2,
+    "blocking": 0
    }
   },
   "perNetwork": {
    "cloudflare": {
-    "total": 1076,
-    "blocking": 188
+    "total": 1082,
+    "blocking": 187
    },
    "fastly": {
-    "total": 222,
-    "blocking": 55
+    "total": 216,
+    "blocking": 53
    },
    "cloudfront": {
-    "total": 424,
-    "blocking": 87
+    "total": 413,
+    "blocking": 82
    },
    "alibaba": {
     "total": 37,
@@ -171,15 +167,15 @@
     "blocking": 1
    },
    "akamai": {
-    "total": 307,
-    "blocking": 44
+    "total": 265,
+    "blocking": 43
    },
    "imperva": {
-    "total": 14,
-    "blocking": 2
+    "total": 11,
+    "blocking": 1
    },
    "google": {
-    "total": 154,
+    "total": 153,
     "blocking": 5
    },
    "vercel": {
@@ -187,12 +183,12 @@
     "blocking": 3
    },
    "netlify": {
-    "total": 24,
+    "total": 25,
     "blocking": 1
    },
    "varnish": {
-    "total": 36,
-    "blocking": 11
+    "total": 39,
+    "blocking": 12
    },
    "bunny": {
     "total": 11,
