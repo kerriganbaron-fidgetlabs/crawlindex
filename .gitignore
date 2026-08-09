@@ -13,3 +13,6 @@ data/tranco*.zip
 .secrets/
 
 .vercel
+server.log
+crawl.log
+logs/
