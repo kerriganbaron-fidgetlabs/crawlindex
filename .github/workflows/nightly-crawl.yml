@@ -99,14 +99,19 @@ jobs:
 
           # Summarise what actually moved, so the PR reads as a changelog rather than a
           # multi-megabyte diff nobody will open.
+          # git rejects -m together with -F, so the subject line goes into the file.
+          printf 'Nightly crawl %s
+
+' "$DAY" > /tmp/commit.md
           node scripts/crawl-summary.mjs "$DAY" > /tmp/summary.md
-          cat /tmp/summary.md
+          cat /tmp/summary.md >> /tmp/commit.md
+          cat /tmp/commit.md
 
           git config user.name "CrawlIndex Bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
           git add data/
-          git commit -m "Nightly crawl ${DAY}" -F /tmp/summary.md
+          git commit -F /tmp/commit.md
           git push origin "$BRANCH"
 
           gh pr create --base main --head "$BRANCH" --title "Nightly crawl ${DAY}" --body-file /tmp/summary.md
