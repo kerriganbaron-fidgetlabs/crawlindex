@@ -28,6 +28,7 @@ const NAV = [
   { href: '/leaderboard', label: 'Leaderboard' },
   { href: '/bots', label: 'Crawlers' },
   { href: '/changes', label: 'Changes' },
+  { href: '/reports', label: 'Reports' },
   { href: '/methodology', label: 'Method' },
 ];
 

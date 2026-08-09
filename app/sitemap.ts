@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next';
 import { AGENTS, agentSlug } from '../lib/agents';
 import { getAllIndexedDomains } from '../lib/queries';
+import { getReportMonths } from '../lib/report';
 import { absoluteUrl } from '../lib/site';
 
 // Regenerated daily. The domain list is the bulk of the search surface, so a stale or
@@ -16,6 +17,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: absoluteUrl('/methodology'), changeFrequency: 'monthly', priority: 0.7 },
     { url: absoluteUrl('/about'), changeFrequency: 'monthly', priority: 0.5 },
     { url: absoluteUrl('/api'), changeFrequency: 'monthly', priority: 0.5 },
+    { url: absoluteUrl('/reports'), changeFrequency: 'monthly', priority: 0.8 },
   ];
 
   const bots: MetadataRoute.Sitemap = AGENTS.map((a) => ({
@@ -23,6 +25,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     changeFrequency: 'daily' as const,
     priority: 0.8,
   }));
+
+  let reports: MetadataRoute.Sitemap = [];
+  try {
+    reports = (await getReportMonths()).map((m) => ({
+      url: absoluteUrl(`/reports/${m}`),
+      changeFrequency: 'weekly' as const,
+      priority: 0.8,
+    }));
+  } catch {
+    /* a database hiccup degrades the sitemap, it does not break the build */
+  }
 
   let domains: MetadataRoute.Sitemap = [];
   try {
@@ -37,5 +50,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // A database hiccup should degrade the sitemap, not break the build.
   }
 
-  return [...statics, ...bots, ...domains];
+  return [...statics, ...bots, ...reports, ...domains];
 }

@@ -44,6 +44,7 @@ export async function GET() {
     `- [Methodology](${absoluteUrl('/methodology')}): what is requested, how robots.txt is interpreted, and the full 100-point rubric.`,
     `- [Leaderboard](${absoluteUrl('/leaderboard')}): most and least agent-ready sites.`,
     `- [Crawler registry](${absoluteUrl('/bots')}): every AI crawler tracked, and how many sites block it.`,
+    `- [Monthly reports](${absoluteUrl('/reports')}): dated state-of-the-web reports, citable with a crawl date.`,
     `- [Change feed](${absoluteUrl('/changes')}): sites that recently changed their crawler policy.`,
     `- [About](${absoluteUrl('/about')}): who runs this, how it is funded, and how to be removed.`,
     '',
