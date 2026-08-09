@@ -1,0 +1,71 @@
+name: Nightly crawl
+
+# Runs the index off GitHub's infrastructure rather than the Builder machine.
+#
+# The gaming PC was the wrong host: the crawl only ran when that machine happened to be
+# awake, it burned electricity, and it made a supposedly hands-off project depend on
+# Kerrigan's hardware. A hosted runner removes all three. ~23 minutes a night is ~690 of
+# the 2,000 free private-repo minutes per month, so this costs nothing.
+
+on:
+  schedule:
+    # 02:30 UTC. Deliberately not on the hour, when GitHub's scheduler is most congested.
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Max domains to crawl'
+        required: false
+        default: '6000'
+      reseed:
+        description: 'Refresh the Tranco corpus first'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  # Never let a slow run overlap the next night's.
+  group: nightly-crawl
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    # The crawl is I/O bound and polite by design, so it is slow on purpose. Give it room
+    # but never let a hung run eat the monthly budget.
+    timeout-minutes: 90
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Refresh corpus
+        # Mondays, or on demand. Re-seeding also retro-applies the exclusion rules.
+        if: github.event.inputs.reseed == 'true' || github.event_name == 'schedule'
+        run: |
+          if [ "$(date -u +%u)" = "1" ] || [ "${{ github.event.inputs.reseed }}" = "true" ]; then
+            pnpm seed --count 5000
+          else
+            echo "Not Monday and no reseed requested. Skipping."
+          fi
+
+      - name: Crawl
+        run: pnpm crawl --limit ${{ github.event.inputs.limit || 6000 }} --concurrency 20
+
+      - name: Summary
+        if: always()
+        run: echo "Crawl finished with status ${{ job.status }}." >> $GITHUB_STEP_SUMMARY
