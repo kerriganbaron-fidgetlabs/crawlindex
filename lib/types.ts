@@ -2,12 +2,20 @@
 
 export type AccessMap = Record<string, boolean>;
 
+export type ControlKind = 'none' | 'bot-challenge' | 'payment-required' | 'robots-restricted';
+
 export type Observation = {
   domain: string;
   observedAt: string;
   /** Registry version the access map was computed against. */
   registryVersion: string;
   probeVersion: string;
+  /**
+   * Where the request came from. Origins serve differently by geography and IP
+   * reputation, so an observation is only comparable with another from the same vantage.
+   * Change detection refuses to diff across a mismatch.
+   */
+  vantage: string;
 
   reachable: boolean;
   httpStatus: number;
@@ -15,37 +23,39 @@ export type Observation = {
   error: string | null;
 
   /**
-   * The operator disallowed CrawlIndexBot in robots.txt. We check this before requesting
-   * anything else and stop there, so opting out costs the site one request rather than
-   * five and the domain leaves the published index on the next crawl.
+   * The operator disallowed CrawlIndexBot by name in robots.txt. We check this before
+   * requesting anything else and stop there, so opting out costs the site one request
+   * and the domain leaves the published index on the next crawl.
    */
   optedOut: boolean;
 
-  /**
-   * Whether OUR OWN control request was interfered with (bot challenge, WAF interstitial).
-   * When it was, everything we infer from the HTML body is an artefact of being blocked
-   * rather than a property of the site, and must be excluded from scoring instead of
-   * counted as failure. robots.txt findings remain valid: that fetch is independent.
-   */
+  /** True when the site answered over HTTPS. A plain-http-only site is a real finding. */
+  https: boolean;
+
   control: {
     challenged: boolean;
     reason: string | null;
     /**
      * `payment-required` is HTTP 402, which in 2026 means a pay-per-crawl wall rather
-     * than an error. It is tracked separately from an ordinary bot challenge because
-     * "this publisher charges agents for access" is a different fact about the web than
-     * "this publisher blocks agents", and the two should never be averaged together.
+     * than an error. `robots-restricted` means robots.txt denies all crawlers the root,
+     * so we read the policy and fetched no page. Each is a different fact about the web
+     * and they must never be averaged together.
      */
-    kind: 'none' | 'bot-challenge' | 'payment-required' | 'robots-restricted';
+    kind: ControlKind;
   };
 
   robots: {
     present: boolean;
-    /** A `User-agent: * / Disallow: /` style blanket block. */
     blocksAllCrawlers: boolean;
     sitemapDeclared: boolean;
     /** Tokens the operator named explicitly, whether to allow or to block. */
     namedTokens: string[];
+    /** Total user-agent groups. A proxy for how deliberate the policy is. */
+    groupCount: number;
+    /** Uses Allow: rules, which implies a curated policy rather than a blanket one. */
+    usesAllowRules: boolean;
+    crawlDelay: number | null;
+    bytes: number;
   };
 
   /** token -> allowed. Computed for every agent in the registry. */
@@ -62,8 +72,8 @@ export type Observation = {
     detected: boolean;
   };
 
-  llmsTxt: { present: boolean; specValid: boolean; issues: string[] };
-  agentsMd: { present: boolean };
+  llmsTxt: { present: boolean; specValid: boolean; issues: string[]; bytes: number; linkCount: number };
+  agentsMd: { present: boolean; bytes: number };
 
   structured: {
     jsonLdTypes: string[];
@@ -73,11 +83,28 @@ export type Observation = {
 
   content: {
     title: string | null;
+    lang: string | null;
     ssrTextLength: number;
     h1Count: number;
     landmarks: string[];
     imagesTotal: number;
     imagesWithAlt: number;
+    feed: boolean;
+    canonical: boolean;
+    metaNoindex: boolean;
+  };
+
+  /** Detected from the same bytes. Null means unrecognised, never guessed. */
+  stack: {
+    platform: string | null;
+    network: string | null;
+    server: string | null;
+  };
+
+  security: {
+    hsts: boolean;
+    csp: boolean;
+    xContentTypeOptions: boolean;
   };
 };
 
@@ -115,21 +142,4 @@ export type Score = {
   rubricVersion: string;
   /** True when some lines were excluded, so the total is renormalised over fewer points. */
   partial: boolean;
-};
-
-export type DomainRow = {
-  domain: string;
-  rank: number | null;
-  category: string | null;
-  score: number | null;
-  grade: string | null;
-  tier1_blocked: string[];
-  tier2_blocked: string[];
-  llms_txt: boolean;
-  agents_md: boolean;
-  cloaking: boolean;
-  reachable: boolean;
-  observed_at: string;
-  first_seen: string;
-  observation: Observation;
 };

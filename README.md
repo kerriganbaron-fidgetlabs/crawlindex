@@ -1,92 +1,112 @@
 # CrawlIndex
 
-The open index of how the web treats AI agents.
+**The open index of how the web treats AI agents.** https://crawlindex.org
 
-> **Read [`docs/HANDOVER.md`](docs/HANDOVER.md) first.** It records the goal this was built
-> against, why it is **not** an income project, the measured costs, and the open decisions.
+A nightly crawler measures thousands of the most-visited domains and publishes, for each
+one: which AI crawlers it blocks, whether it serves `llms.txt` or `agents.md`, whether it
+hands a crawler something different from what it hands a browser, and a deterministic 0 to
+100 readiness score. Aggregates, per-crawler pages, monthly reports and cross-tabs by CDN,
+platform and TLD are all derived from the same data.
 
-Live: https://crawlindex.vercel.app
+**The whole dataset is free.** CC BY 4.0, no key, no signup, no rate limit:
+[`/data/domains.jsonl`](https://crawlindex.org/data/domains.jsonl).
 
-A nightly crawler measures Tranco-ranked domains and publishes, per domain, which AI
-crawlers they block, whether they serve `llms.txt` or `agents.md`, whether they hand a
-crawler something different from what they hand a browser, and a deterministic 0 to 100
-readiness score. Aggregate figures, per-crawler pages and a change feed are derived from
-the same data.
+Research and data by [Fidget Labs BV](https://fidgetlabs.io), Breda, Netherlands.
+
+---
 
 ## Why it exists
 
-Publishers are deciding one robots.txt at a time whether AI systems may read the web.
+Publishers are deciding, one robots.txt at a time, whether AI systems may read the web.
 Those decisions are unannounced, changed silently, trivial to check individually and
 invisible in aggregate. This measures them on a schedule and keeps the receipts.
 
+The finding that makes the dataset worth having is not "who blocks GPTBot". It is **who
+decided**. Most operators never formed a view; their CDN or their publishing platform
+shipped a default and they inherited it. Grouping blocking rates by edge network and
+platform makes that visible, and nobody else publishes it.
+
 ## The rules that make the numbers trustworthy
 
-These are enforced by `tests/`, not by convention.
+Enforced by `tests/`, not by convention. Do not relax them.
 
-1. **No model in the scoring path.** `scoreObservation` is a pure function over recorded
-   evidence. Language models are used nowhere in measurement or scoring.
-2. **Unobservable is not zero.** A site that cannot be reached scores `null` and is
-   excluded from every aggregate rather than counted as a failure.
-3. **Our failures are not charged to the site.** When the control request meets a bot
-   wall, everything derived from that HTML describes the wall. Those lines are marked
-   unavailable and the total is renormalised over what remained, then flagged `partial`
-   and kept out of leaderboards.
-4. **Everything is versioned.** Every stored row records the registry, probe and rubric
-   versions it was produced under, and archives the full observation so any score can be
-   recomputed later.
+1. **No model in the scoring path.** `scoreObservation` is a pure function over archived
+   evidence. Language models are used nowhere in measurement, scoring, or report prose.
+2. **Unobservable is `null`, never 0**, and excluded from every aggregate.
+3. **A measurement *we* failed to take is never charged to the site.** When the control
+   request meets a bot wall, body-derived checks are marked unavailable and the total is
+   renormalised, flagged `partial`, and kept out of leaderboards.
+4. **A change must be the site's, not ours.** Nothing is reported as a change across a
+   probe version or a crawl-location change. Improving our own detection, or moving where
+   the crawler runs, must never be published as somebody else changing their policy.
+5. **`robots.txt` is read first.** A group naming `CrawlIndexBot` and denying it is an
+   opt-out that costs one request and takes effect on the next crawl.
 
-`robots.txt` is read before anything else, so an operator who disallows `CrawlIndexBot`
-costs their server one request and leaves the index on that crawl.
+A blanket `User-agent: * / Disallow: /` is deliberately *not* treated as an opt-out. We
+fetch no pages, but the stated policy is still reported, because dropping the most
+restrictive operators from an index about restrictiveness would bias every figure.
+
+## How it runs
+
+```
+GitHub Actions (02:30 UTC)
+  -> pnpm test          fail here and nothing is published
+  -> pnpm seed          Mondays only, refreshes Tranco ranks
+  -> pnpm crawl         ~40 min, writes data/
+  -> pnpm build         a dataset that cannot build is not published
+  -> opens a PR, merges it
+       -> Vercel deploys main
+```
+
+No database. No server. No secrets in the published site. `main` requires a pull request
+with no bypass, so the bot opens one like everyone else, which also makes `git log` a dated
+changelog of how the web's AI policy moved.
+
+Cost: nothing. Public repositories get unlimited Actions minutes, the dataset is files in
+git, and the site is static.
 
 ## Layout
 
 ```
 lib/
-  agents.ts     version-pinned AI crawler registry
-  robots.ts     RFC 9309 parser, group-aware, longest-match
-  probe.ts      the 5-request lite probe
-  score.ts      the rubric, a pure function
-  findings.ts   derived readings over stored observations
-  queries.ts    read path for the site (paginates past PostgREST's 1000-row cap)
+  agents.ts        version-pinned AI crawler registry
+  robots.ts        RFC 9309 parser, group-aware, longest-match
+  probe.ts         the 5-request probe
+  fingerprints.ts  platform and CDN detection from bytes already fetched
+  score.ts         the rubric, a pure function
+  dataset.ts       reads data/, recomputes every score on load
+  report.ts        monthly reports, templated so they stay citable
 worker/
-  seed.ts       Tranco corpus loader plus infrastructure filtering
-  crawl.ts      nightly batch, change detection, daily rollup
-  probe-cli.ts  probe one domain, print the result, write nothing
-  nightly.cmd   Task Scheduler entry point
-app/            Next.js site, JSON API, SVG badge, llms.txt, agents.md
-supabase/       migrations
+  seed.ts          Tranco corpus plus pinned domains
+  crawl.ts         nightly pass, change detection, daily rollup
+  store.ts         atomic reads and writes of data/
+  probe-cli.ts     probe one domain, print it, write nothing
+data/               the product. JSON Lines, sorted, git-diffable
+app/                Next.js site, static JSON API, SVG badges, llms.txt, agents.md
 ```
 
 ## Running it
 
 ```
 pnpm install
-cp .env.example .env.local     # fill in the Supabase URL plus anon and service role keys
-pnpm seed --count 5000         # load the corpus
-pnpm crawl --limit 6000        # measure it
+pnpm seed            # build the corpus
+pnpm crawl           # measure it
 pnpm dev
 ```
 
-Useful during development:
-
 ```
-pnpm probe nytimes.com stripe.com    # no writes, prints observation and score
-pnpm test                            # robots semantics and score determinism
+pnpm probe nytimes.com stripe.com   # no writes, prints observation and score
+pnpm test                           # robots semantics, score determinism, fingerprints
 ```
-
-## Operations
-
-- Nightly crawl runs on **GitHub Actions** at 02:30 UTC (`.github/workflows/nightly-crawl.yml`).
-  It previously ran on the Builder machine via Task Scheduler; that made a hands-off project
-  depend on the gaming PC being awake, so it was moved. A full pass is ~43 min on a hosted
-  runner, which is ~1,300 of the 2,000 free private-repo minutes per month. Making the repo
-  public removes that limit. The site reads Supabase through ISR, so a finished crawl is live
-  within the hour and no deploy is involved.
-- Re-seeding on Mondays refreshes Tranco ranks and demotes newly recognised
-  infrastructure hosts.
-- Domains that fail at the transport layer three crawls running are demoted out of the
-  published population automatically, with the reason recorded.
 
 ## Licence
 
-Code: proprietary, Fidget Labs BV. Published data: CC BY 4.0.
+Two things, two licences. **Data** in `data/` is CC BY 4.0, yours to use with attribution.
+**Code** is all rights reserved, published so the methodology is auditable rather than for
+reuse. See [LICENSE](LICENSE).
+
+## Support
+
+There is none, by design. See [CONTRIBUTING.md](CONTRIBUTING.md). To leave the index,
+disallow `CrawlIndexBot` in your robots.txt; that works immediately and needs nobody's
+attention.

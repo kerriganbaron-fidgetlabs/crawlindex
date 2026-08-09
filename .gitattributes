@@ -1,0 +1,12 @@
+# Everything is LF in the repository.
+#
+# This is not cosmetic. The dataset is committed from a Linux runner every night and was
+# authored from Windows. Without this, the two disagree about line endings and every
+# nightly commit rewrites all 6MB of data/domains.jsonl instead of the handful of lines
+# that actually changed, which would turn a year of history into gigabytes.
+* text=auto eol=lf
+
+# The dataset is the product. Mark it so GitHub does not count it as source, and so diffs
+# stay line-oriented.
+data/*.jsonl linguist-generated=true text eol=lf
+data/*.json  linguist-generated=true text eol=lf

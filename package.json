@@ -12,10 +12,9 @@
     "test:watch": "vitest",
     "seed": "tsx worker/seed.ts",
     "crawl": "tsx worker/crawl.ts",
-    "report": "tsx worker/report.ts"
+    "prebuild": "node scripts/publish-data.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.47.10",
     "next": "16.0.10",
     "react": "19.2.0",
     "react-dom": "19.2.0"
@@ -25,7 +24,6 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "dotenv": "^16.4.7",
     "jsdom": "^25.0.1",
     "@types/jsdom": "^21.1.7",
     "postcss": "^8.5",

@@ -1,14 +1,16 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { AGENTS } from '../../lib/agents';
+import { TIER1 } from '../../lib/agents';
+import { getDomain } from '../../lib/dataset';
+import { networkLabel, platformLabel } from '../../lib/fingerprints';
 import { isValidDomain, normaliseDomain } from '../../lib/http';
 import { probeDomain } from '../../lib/probe';
 import { scoreObservation } from '../../lib/score';
-import { getDomain } from '../../lib/queries';
 import { PageHeader, ScoreChip } from '../../components/ui';
 
-// Five outbound requests, each with its own timeout.
+// Five outbound requests, each with its own timeout. The only route on the site that is
+// not a static file, because it measures something that does not exist yet.
 export const maxDuration = 60;
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,17 +30,14 @@ export default async function CheckPage({ searchParams }: Props) {
   const valid = domain ? isValidDomain(domain) : false;
 
   // Anything already in the nightly index gets the permanent page, with its history.
-  if (domain && valid) {
-    const existing = await getDomain(domain).catch(() => null);
-    if (existing) redirect(`/site/${domain}`);
-  }
+  if (domain && valid && getDomain(domain)) redirect(`/site/${domain}`);
 
   return (
     <>
       <PageHeader
         kicker="Live check"
         title="Measure any domain"
-        lede="Runs the same five requests the nightly crawler makes and scores the result with the same rubric. Nothing is stored: only domains from the Tranco ranking are permanently indexed."
+        lede="Runs the same requests the nightly crawler makes and scores the result with the same rubric. Nothing is stored: only domains from the Tranco ranking are permanently indexed."
       />
 
       <form method="get" action="/check" className="mb-10 flex flex-wrap gap-3 items-end">
@@ -84,15 +83,14 @@ export default async function CheckPage({ searchParams }: Props) {
 async function Result({ domain }: { domain: string }) {
   const obs = await probeDomain(domain);
   const score = scoreObservation(obs);
-  const tier1 = AGENTS.filter((a) => a.tier === 1);
 
   if (obs.optedOut) {
     return (
       <section className="border border-rule rounded p-5 bg-raised">
         <h2 className="text-xl font-bold mb-2">{domain} has opted out</h2>
         <p className="text-sm">
-          Its robots.txt disallows CrawlIndexBot, so we stopped after that one request and measured
-          nothing further. It will not appear in the index.
+          Its robots.txt disallows CrawlIndexBot by name, so we stopped after that one request and
+          measured nothing further. It will not appear in the index.
         </p>
       </section>
     );
@@ -110,6 +108,9 @@ async function Result({ domain }: { domain: string }) {
     );
   }
 
+  const platform = platformLabel(obs.stack.platform);
+  const network = networkLabel(obs.stack.network);
+
   return (
     <section>
       <div className="flex flex-wrap items-center gap-6 mb-8">
@@ -118,18 +119,22 @@ async function Result({ domain }: { domain: string }) {
           <h2 className="text-2xl font-bold font-mono">{domain}</h2>
           <p className="text-muted">
             {obs.tier1Blocked.length === 0
-              ? `Allows all ${tier1.length} answer-surface AI crawlers.`
-              : `Blocks ${obs.tier1Blocked.length} of ${tier1.length} answer-surface AI crawlers.`}
+              ? `Allows all ${TIER1.length} answer-surface AI crawlers.`
+              : `Blocks ${obs.tier1Blocked.length} of ${TIER1.length} answer-surface AI crawlers.`}
           </p>
+          {platform || network ? (
+            <p className="text-sm text-muted mt-1">
+              {[platform, network].filter(Boolean).join(' . ')}
+            </p>
+          ) : null}
         </div>
       </div>
 
       {score.partial ? (
         <p className="border-l-4 border-warn bg-raised p-4 mb-8 text-sm">
-          Partial assessment. Our request was met with a bot challenge
-          {obs.control.reason ? ` (${obs.control.reason})` : ''}, so the checks that depend on
-          reading the page were excluded rather than failed, and the score was renormalised over
-          what remained.
+          Partial assessment.{' '}
+          {obs.control.reason ?? 'Some checks could not be observed.'} Those checks were excluded
+          rather than failed, and the score was renormalised over what remained.
         </p>
       ) : null}
 
@@ -153,7 +158,7 @@ async function Result({ domain }: { domain: string }) {
       </ul>
 
       <p className="text-sm text-muted">
-        Measured just now, live. See the{' '}
+        Measured just now, live, and not stored. See the{' '}
         <Link href="/methodology" className="text-accent underline underline-offset-4">
           methodology
         </Link>{' '}

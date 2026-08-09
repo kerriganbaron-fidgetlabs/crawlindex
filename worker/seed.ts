@@ -1,50 +1,64 @@
 /**
- * Seed the domain corpus from the Tranco list.
+ * Build the domain corpus from the Tranco list, plus pinned domains.
  *
- * Tranco is the right source here: it is a research-grade ranking that combines five
- * providers and is explicitly built to resist the manipulation and day-to-day churn that
- * make Alexa-style lists useless for longitudinal work. The index only means something
- * if the population is stable enough to compare month over month.
+ * Tranco is the right source: a research-grade ranking combining five providers, built to
+ * resist the manipulation and day-to-day churn that make Alexa-style lists useless for
+ * longitudinal work. The index only means anything if the population is stable enough to
+ * compare month over month.
  *
- *   pnpm seed              # top 5000
+ * Seeding never destroys observations. It writes `corpus.json` only; `domains.jsonl` is
+ * the crawler's business.
+ *
+ *   pnpm seed
  *   pnpm seed --count 20000
  */
 
 import { isValidDomain, normaliseDomain } from '../lib/http';
-import { assertWrote, serviceClient } from './env';
+import { readCorpus, writeCorpus, type CorpusEntry } from './store';
 
 const TRANCO_LATEST = 'https://tranco-list.eu/api/lists/date/latest';
 
 /**
+ * Domains that stay in the index regardless of ranking.
+ *
+ * Fidget Labs publishes this index, so its own properties are measured by it and held to
+ * the same rubric as everyone else. An index whose author exempts himself is worthless.
+ */
+export const PINNED_DOMAINS = [
+  'fidgetlabs.io',
+  'markwright.app',
+  'kerriganbaron.com',
+  'crawlindex.org',
+  'imageclean.app',
+  'aireport.fidgetlabs.io',
+];
+
+/**
  * Infrastructure, not websites. These rank highly because everything embeds them, but
- * they have no homepage a person or an agent would ever read, so scoring them would
- * pollute every aggregate on the site.
+ * they have no homepage a person or an agent would read, so scoring them would pollute
+ * every aggregate on the site.
  */
 export const EXCLUDE_PATTERNS: RegExp[] = [
-  // Content delivery and asset hosts.
   /(^|\.)(cdn|api|static|assets|img|images|media|edge|cache)\./,
   /(^|\.)(googleapis|gstatic|googlesyndication|googletagmanager|google-analytics|doubleclick|googleusercontent|googlevideo)\.com$/,
   /(^|\.)(akamai|akamaized|akamaiedge|edgesuite|edgekey|akadns|akamaihd)\.net$/,
   /(^|\.)(cloudfront|amazonaws|azureedge|azurewebsites|windows|windowsupdate|trafficmanager)\.(net|com)$/,
   /(^|\.)(fbcdn|cdninstagram|twimg|licdn|ytimg|ggpht|gvt1|gvt2|aaplimg|apple-dns)\.(net|com)$/,
-  // Identity, telemetry and platform plumbing with no readable homepage.
   /(^|\.)(office|office365|officeapps|microsoftonline|msftncsi|msedge|msn|live|skype)\.(com|net)$/,
   /(^|\.)(whatsapp|messenger|fbsbx|instagram-static)\.(net|com)$/,
   /(^|\.)(rubiconproject|casalemedia|pubmatic|adnxs|criteo|taboola|outbrain|scorecardresearch|adsrvr|adsafeprotected|moatads)\.(com|org|net)$/,
   /(^|\.)(sentry|segment|amplitude|mixpanel|newrelic|datadoghq|cloudflareinsights|nr-data)\.(io|com|net)$/,
-  // DNS and registry infrastructure.
   /(^|\.)(gtld-servers|root-servers|nstld|domaincontrol|registrar-servers|dnsnode|ultradns|dynect)\.(net|com|org)$/,
   /(^|\.)(ns[0-9]*|dns[0-9]*)\./,
   /-dns\.(net|com)$/,
-  // URL shorteners resolve to a redirect, never a page.
   /^(goo\.gl|bit\.ly|t\.co|tinyurl\.com|ow\.ly|buff\.ly|lnkd\.in|amzn\.to|youtu\.be|fb\.me|g\.co)$/,
   /^(localhost|example|invalid|test)\./,
   /\.(arpa|local|internal)$/,
 ];
 
-function isIndexable(domain: string): boolean {
+export function isIndexable(domain: string): boolean {
   if (!isValidDomain(domain)) return false;
-  // A bare two-label domain or a normal subdomain. Anything deeper is usually plumbing.
+  if (PINNED_DOMAINS.includes(domain)) return true;
   if (domain.split('.').length > 3) return false;
   return !EXCLUDE_PATTERNS.some((re) => re.test(domain));
 }
@@ -55,10 +69,8 @@ async function fetchTranco(count: number): Promise<{ listId: string; rows: Array
   const meta = (await metaRes.json()) as { list_id: string; available: boolean };
   if (!meta.available) throw new Error('Tranco reports the latest list is not available yet.');
 
-  // Over-fetch, because filtering removes a meaningful slice of the head of the list.
-  const fetchCount = Math.min(1_000_000, count * 3);
-  const url = `https://tranco-list.eu/download/${meta.list_id}/${fetchCount}`;
-  const res = await fetch(url);
+  // Over-fetch: filtering removes a meaningful slice of the head of the list.
+  const res = await fetch(`https://tranco-list.eu/download/${meta.list_id}/${Math.min(1_000_000, count * 3)}`);
   if (!res.ok) throw new Error(`Tranco download failed: HTTP ${res.status}`);
   const csv = await res.text();
 
@@ -76,61 +88,66 @@ async function fetchTranco(count: number): Promise<{ listId: string; rows: Array
 
 async function main() {
   const args = process.argv.slice(2);
-  const countArg = args.indexOf('--count');
-  const count = countArg >= 0 ? Number(args[countArg + 1]) : 5000;
+  const i = args.indexOf('--count');
+  const count = i >= 0 ? Number(args[i + 1]) : 5000;
   if (!Number.isFinite(count) || count < 1) throw new Error('--count must be a positive number');
 
-  console.log(`Fetching Tranco top ${count} (after filtering)...`);
-  const { listId, rows } = await fetchTranco(count);
-  console.log(`Tranco list ${listId}: ${rows.length} indexable domains.`);
+  const existing = new Map(readCorpus().map((e) => [e.domain, e]));
+  const now = new Date().toISOString();
 
-  const db = serviceClient();
-
-  // Upsert in batches. `rank` is refreshed every seed; everything else is left to the
-  // crawler so re-seeding never wipes observations.
-  const BATCH = 500;
-  let written = 0;
-  for (let i = 0; i < rows.length; i += BATCH) {
-    const batch = rows.slice(i, i + BATCH);
-    const { data, error } = await db
-      .from('domains')
-      .upsert(
-        batch.map((r) => ({ domain: r.domain, rank: r.rank })),
-        { onConflict: 'domain', ignoreDuplicates: false },
-      )
-      .select('domain');
-    if (error) throw new Error(`Upsert failed at offset ${i}: ${error.message}`);
-    written += assertWrote(data, `seed batch at ${i}`, batch.length).length;
-    process.stdout.write(`\r  seeded ${written}/${rows.length}`);
-  }
-  console.log(`\nSeeded ${written} domains.`);
-
-  // Retro-apply the current exclusion rules. The list of infrastructure patterns grows
-  // as the crawl surfaces new ones, and rows seeded under an older list must be demoted
-  // rather than left polluting the aggregates.
-  const { data: all, error: allErr } = await db
-    .from('domains')
-    .select('domain')
-    .eq('indexable', true)
-    .limit(1_000_000);
-  if (allErr) throw new Error(`could not scan for demotions: ${allErr.message}`);
-
-  const demote = (all ?? []).map((r: { domain: string }) => r.domain).filter((d) => !isIndexable(d));
-  if (!demote.length) {
-    console.log('No existing rows need demoting.');
-    return;
+  console.log(`Fetching Tranco top ${count} after filtering...`);
+  let ranked: Array<{ domain: string; rank: number }> = [];
+  try {
+    const { listId, rows } = await fetchTranco(count);
+    ranked = rows;
+    console.log(`Tranco list ${listId}: ${rows.length} indexable domains.`);
+  } catch (e) {
+    // A seeding failure must not wipe the corpus or fail the nightly run. The crawler can
+    // work perfectly well from yesterday's list.
+    console.error(`Tranco fetch failed, keeping the existing corpus: ${e instanceof Error ? e.message : e}`);
+    if (!existing.size) throw e;
   }
 
-  for (let i = 0; i < demote.length; i += BATCH) {
-    const slice = demote.slice(i, i + BATCH);
-    const { error } = await db
-      .from('domains')
-      .update({ indexable: false, excluded_reason: 'Infrastructure host, not a readable website' })
-      .in('domain', slice)
-      .select('domain');
-    if (error) throw new Error(`demotion failed at ${i}: ${error.message}`);
+  const next = new Map<string, CorpusEntry>();
+
+  for (const { domain, rank } of ranked) {
+    const prev = existing.get(domain);
+    next.set(domain, {
+      domain,
+      rank,
+      firstSeen: prev?.firstSeen ?? now,
+      consecutiveFailures: prev?.consecutiveFailures ?? 0,
+      excluded: prev?.excluded ?? null,
+    });
   }
-  console.log(`Demoted ${demote.length} infrastructure hosts out of the published index.`);
+
+  // Pinned domains are added last so they always survive, ranked or not.
+  for (const domain of PINNED_DOMAINS) {
+    const prev = existing.get(domain);
+    next.set(domain, {
+      domain,
+      rank: prev?.rank ?? null,
+      firstSeen: prev?.firstSeen ?? now,
+      pinned: true,
+      consecutiveFailures: prev?.consecutiveFailures ?? 0,
+      excluded: prev?.excluded ?? null,
+    });
+  }
+
+  // Retro-apply the exclusion rules. The infrastructure pattern list grows as crawls
+  // surface new cases, and entries added under an older list must be dropped.
+  let dropped = 0;
+  for (const [domain] of next) {
+    if (!isIndexable(domain)) {
+      next.delete(domain);
+      dropped++;
+    }
+  }
+
+  writeCorpus([...next.values()]);
+  console.log(
+    `Corpus: ${next.size} domains (${PINNED_DOMAINS.length} pinned)${dropped ? `, ${dropped} dropped as infrastructure` : ''}.`,
+  );
 }
 
 main().catch((e) => {

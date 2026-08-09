@@ -2,6 +2,14 @@
 const nextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+
+  // /check is the one route that runs at request time, and it reads the dataset to decide
+  // whether a domain is already indexed. Without this the data files are traced out of the
+  // serverless bundle and that lookup fails in production while working perfectly locally.
+  outputFileTracingIncludes: {
+    '/check': ['./data/**'],
+  },
+
   async headers() {
     return [
       {
@@ -24,6 +32,15 @@ const nextConfig = {
       {
         source: '/api/:path*',
         headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }],
+      },
+      {
+        // Bulk dataset downloads. Open to everyone, cached hard, and served as text so a
+        // browser shows them rather than downloading a mystery file.
+        source: '/data/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Cache-Control', value: 'public, max-age=3600, s-maxage=43200' },
+        ],
       },
     ];
   },

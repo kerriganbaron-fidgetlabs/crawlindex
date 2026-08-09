@@ -1,32 +1,34 @@
 name: Nightly crawl
 
-# Runs the index off GitHub's infrastructure rather than the Builder machine.
+# The whole engine. Crawls the corpus, writes the dataset, and opens a pull request that
+# merges itself. Merging to main triggers the Vercel production deploy, so this one job is
+# the entire publishing pipeline.
 #
-# The gaming PC was the wrong host: the crawl only ran when that machine happened to be
-# awake, it burned electricity, and it made a supposedly hands-off project depend on
-# Kerrigan's hardware. A hosted runner removes all three.
+# It runs on GitHub's infrastructure rather than a machine in someone's house. The crawl
+# used to be a Windows scheduled task, which meant the index only updated when that PC
+# happened to be awake, burned electricity, and made a supposedly hands-off project depend
+# on one person's hardware.
 #
-# COST, measured not guessed. A 150-domain run took 97s wall (75s of crawl). Hosted
-# runners are slower than the Builder machine, roughly 0.5s per domain against 0.28s.
-# A full 5,050-domain pass is therefore ~43 minutes, so ~1,300 minutes a month against
-# the 2,000 free minutes a private repo gets. That is 65% of the whole account allowance
-# consumed by one project, which is not "free" in any useful sense.
+# COST: this repository is public, and public repositories get unlimited Actions minutes.
+# A full pass is roughly 40 minutes of runner time and costs nothing. If it is ever made
+# private again that becomes ~1,200 of the 2,000 free monthly minutes, and the schedule
+# would need revisiting.
 #
-# Making this repository PUBLIC removes the limit entirely: public repos get unlimited
-# Actions minutes. The dataset is CC BY 4.0 and all credentials live in Actions secrets,
-# so there is nothing here to keep private. Until that happens, treat the minute budget
-# as a real constraint and do not add a second scheduled job.
+# WHY A PULL REQUEST: main requires one. There is no bypass, deliberately, and GitHub does
+# not permit the Actions app as a bypass actor on a user-owned repository anyway. Rather
+# than weaken the rule, the bot follows it. Every night's data lands as a reviewable diff
+# with a summary of what moved.
 
 on:
   schedule:
-    # 02:30 UTC. Deliberately not on the hour, when GitHub's scheduler is most congested.
+    # 02:30 UTC. Deliberately off the hour, when GitHub's scheduler is most congested.
     - cron: '30 2 * * *'
   workflow_dispatch:
     inputs:
       limit:
         description: 'Max domains to crawl'
         required: false
-        default: '6000'
+        default: '100000'
       reseed:
         description: 'Refresh the Tranco corpus first'
         type: boolean
@@ -34,26 +36,23 @@ on:
         default: false
 
 concurrency:
-  # Never let a slow run overlap the next night's.
   group: nightly-crawl
   cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    # The crawl is I/O bound and polite by design, so it is slow on purpose. Give it room
-    # but never let a hung run eat the monthly budget.
-    timeout-minutes: 90
-
-    env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v4
 
-      # No `version` here: package.json already pins packageManager, and specifying both
-      # makes the action refuse to run.
+      # No `version`: package.json pins packageManager, and specifying both makes the
+      # action refuse to run.
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
@@ -63,19 +62,59 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Refresh corpus
-        # Mondays, or on demand. Re-seeding also retro-applies the exclusion rules.
-        if: github.event.inputs.reseed == 'true' || github.event_name == 'schedule'
+      # The rubric and the robots.txt semantics are the trust core. If they are broken,
+      # publishing a dataset scored by them is worse than publishing nothing.
+      - name: Test before publishing anything
+        run: pnpm test
+
+      - name: Refresh corpus on Mondays
         run: |
           if [ "$(date -u +%u)" = "1" ] || [ "${{ github.event.inputs.reseed }}" = "true" ]; then
             pnpm seed --count 5000
           else
-            echo "Not Monday and no reseed requested. Skipping."
+            echo "Not Monday and no reseed requested. Keeping the existing corpus."
           fi
 
       - name: Crawl
-        run: pnpm crawl --limit ${{ github.event.inputs.limit || 6000 }} --concurrency 20
+        env:
+          CRAWLINDEX_VANTAGE: gha-ubuntu
+        run: pnpm crawl --limit ${{ github.event.inputs.limit || 100000 }} --concurrency 20
 
-      - name: Summary
-        if: always()
-        run: echo "Crawl finished with status ${{ job.status }}." >> $GITHUB_STEP_SUMMARY
+      - name: Verify the dataset builds before publishing it
+        run: pnpm build
+
+      - name: Open and merge the data pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$(git status --porcelain data/)" ]; then
+            echo "No dataset changes. Nothing to publish." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          DAY=$(date -u +%Y-%m-%d)
+          BRANCH="data/${DAY}-${GITHUB_RUN_ID}"
+
+          # Summarise what actually moved, so the PR reads as a changelog rather than a
+          # multi-megabyte diff nobody will open.
+          node scripts/crawl-summary.mjs "$DAY" > /tmp/summary.md
+          cat /tmp/summary.md
+
+          git config user.name "CrawlIndex Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add data/
+          git commit -m "Nightly crawl ${DAY}" -F /tmp/summary.md
+          git push origin "$BRANCH"
+
+          gh pr create --base main --head "$BRANCH" --title "Nightly crawl ${DAY}" --body-file /tmp/summary.md
+          gh pr merge "$BRANCH" --squash --delete-branch
+
+          cat /tmp/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Say so loudly if it failed
+        if: failure()
+        run: |
+          echo "The nightly crawl failed. The previously published dataset is untouched and the site is still serving it." >> "$GITHUB_STEP_SUMMARY"

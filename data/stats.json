@@ -1,0 +1,211 @@
+[
+ {
+  "day": "2026-08-09",
+  "totalDomains": 5006,
+  "observed": 3676,
+  "meanScore": 63.82,
+  "blockingAnyTier1": 661,
+  "blockingAllTier1": 158,
+  "llmsTxt": 448,
+  "agentsMd": 27,
+  "refusedGptbot": 952,
+  "paymentRequired": 12,
+  "perBot": {
+   "GPTBot": 549,
+   "OAI-SearchBot": 262,
+   "ChatGPT-User": 324,
+   "ClaudeBot": 529,
+   "Claude-User": 266,
+   "Claude-SearchBot": 262,
+   "PerplexityBot": 383,
+   "Perplexity-User": 274,
+   "Google-Extended": 478,
+   "Applebot-Extended": 456,
+   "meta-externalagent": 493,
+   "CCBot": 585,
+   "Amazonbot": 445,
+   "Bytespider": 548,
+   "cohere-ai": 386,
+   "MistralAI-User": 258,
+   "YouBot": 331,
+   "DuckAssistBot": 276,
+   "kagi-fetcher": 169,
+   "Diffbot": 387,
+   "Google-NotebookLM": 191,
+   "TavilyBot": 199,
+   "FirecrawlAgent": 210
+  },
+  "perPlatform": {
+   "nextjs": {
+    "total": 295,
+    "blocking": 48
+   },
+   "contentful": {
+    "total": 53,
+    "blocking": 2
+   },
+   "aem": {
+    "total": 155,
+    "blocking": 6
+   },
+   "wordpress": {
+    "total": 299,
+    "blocking": 52
+   },
+   "nuxt": {
+    "total": 56,
+    "blocking": 3
+   },
+   "woocommerce": {
+    "total": 25,
+    "blocking": 1
+   },
+   "gatsby": {
+    "total": 11,
+    "blocking": 1
+   },
+   "sitecore": {
+    "total": 15,
+    "blocking": 0
+   },
+   "hubspot": {
+    "total": 78,
+    "blocking": 3
+   },
+   "webflow": {
+    "total": 16,
+    "blocking": 0
+   },
+   "framer": {
+    "total": 9,
+    "blocking": 0
+   },
+   "astro": {
+    "total": 20,
+    "blocking": 3
+   },
+   "wix": {
+    "total": 6,
+    "blocking": 0
+   },
+   "typo3": {
+    "total": 10,
+    "blocking": 0
+   },
+   "drupal": {
+    "total": 120,
+    "blocking": 4
+   },
+   "sanity": {
+    "total": 29,
+    "blocking": 3
+   },
+   "shopify": {
+    "total": 8,
+    "blocking": 0
+   },
+   "salesforce-commerce": {
+    "total": 1,
+    "blocking": 0
+   },
+   "bigcommerce": {
+    "total": 1,
+    "blocking": 0
+   },
+   "storyblok": {
+    "total": 5,
+    "blocking": 0
+   },
+   "angular": {
+    "total": 9,
+    "blocking": 3
+   },
+   "ghost": {
+    "total": 1,
+    "blocking": 1
+   },
+   "commercetools": {
+    "total": 3,
+    "blocking": 0
+   },
+   "remix": {
+    "total": 3,
+    "blocking": 1
+   },
+   "joomla": {
+    "total": 3,
+    "blocking": 0
+   },
+   "sveltekit": {
+    "total": 4,
+    "blocking": 2
+   },
+   "magento": {
+    "total": 1,
+    "blocking": 1
+   },
+   "squarespace": {
+    "total": 1,
+    "blocking": 0
+   }
+  },
+  "perNetwork": {
+   "fastly": {
+    "total": 221,
+    "blocking": 55
+   },
+   "cloudflare": {
+    "total": 1076,
+    "blocking": 188
+   },
+   "cloudfront": {
+    "total": 424,
+    "blocking": 87
+   },
+   "alibaba": {
+    "total": 37,
+    "blocking": 5
+   },
+   "azure-frontdoor": {
+    "total": 28,
+    "blocking": 1
+   },
+   "akamai": {
+    "total": 308,
+    "blocking": 44
+   },
+   "imperva": {
+    "total": 15,
+    "blocking": 2
+   },
+   "google": {
+    "total": 154,
+    "blocking": 5
+   },
+   "vercel": {
+    "total": 48,
+    "blocking": 3
+   },
+   "netlify": {
+    "total": 24,
+    "blocking": 1
+   },
+   "varnish": {
+    "total": 36,
+    "blocking": 11
+   },
+   "bunny": {
+    "total": 11,
+    "blocking": 0
+   },
+   "tencent": {
+    "total": 1,
+    "blocking": 0
+   },
+   "sucuri": {
+    "total": 1,
+    "blocking": 0
+   }
+  }
+ }
+]

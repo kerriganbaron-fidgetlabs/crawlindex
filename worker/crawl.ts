@@ -1,73 +1,69 @@
 /**
  * The nightly crawl.
  *
- * Reads the least-recently-observed domains, probes them, scores them, records only the
- * changes, and refreshes the daily rollup. Designed to be killed and restarted at any
- * point: work is claimed by ordering on `observed_at`, and every domain is written as
- * soon as it is measured rather than batched to the end.
+ * Reads the corpus, probes every domain, scores it, records only genuine changes, and
+ * writes the dataset files. No database: the repository is the store, and the commit the
+ * Action makes afterwards is both the deploy trigger and the provenance record.
  *
- *   pnpm crawl                    # default slice
+ * Safe to kill at any point. Nothing is written until the whole pass finishes, so a
+ * half-finished crawl leaves yesterday's dataset intact and deployed rather than
+ * publishing a partial one.
+ *
+ *   pnpm crawl
  *   pnpm crawl --limit 500 --concurrency 12
- *   pnpm crawl --domains a.com,b.com
+ *   pnpm crawl --domains fidgetlabs.io,markwright.app
  */
 
-import { AGENTS } from '../lib/agents';
+import { AGENTS, REGISTRY_VERSION, TIER1 } from '../lib/agents';
+import type { ChangeRecord, DailyStats, StoredRecord } from '../lib/dataset';
 import { mapPool, normaliseDomain, pruneGate } from '../lib/http';
-import { PROBE_VERSION, probeDomain } from '../lib/probe';
+import { currentVantage, PROBE_VERSION, probeDomain } from '../lib/probe';
 import { RUBRIC_VERSION, scoreObservation } from '../lib/score';
-import { REGISTRY_VERSION } from '../lib/agents';
 import type { Observation, Score } from '../lib/types';
-import { assertWrote, serviceClient } from './env';
-
-type ExistingRow = {
-  domain: string;
-  observed_at: string | null;
-  probe_version: string | null;
-  score: number | null;
-  reachable: boolean | null;
-  consecutive_failures: number;
-  tier1_blocked: string[];
-  llms_txt: boolean;
-  agents_md: boolean;
-  cloaking: boolean;
-};
+import {
+  appendChanges,
+  readCorpus,
+  readRecords,
+  upsertStats,
+  writeCorpus,
+  writeMeta,
+  writeRecords,
+  type CorpusEntry,
+} from './store';
 
 /** Hard failures tolerated before a domain stops being part of the published population. */
 const DEMOTE_AFTER_FAILURES = 3;
 
-type Change = {
-  domain: string;
-  kind: 'score' | 'access' | 'surface' | 'reachability';
-  summary: string;
-  before: unknown;
-  after: unknown;
-};
-
 /** Only movements worth telling someone about. A one-point drift is noise. */
 const SCORE_NOISE_FLOOR = 3;
 
-function diff(prev: ExistingRow | undefined, obs: Observation, score: Score): Change[] {
+function diff(prev: StoredRecord | undefined, obs: Observation, score: Score): ChangeRecord[] {
   // A domain's first observation is its baseline, not a change. Without this guard every
   // site that already blocks a crawler would announce itself as "now blocks GPTBot" on
-  // the night we first look at it, and the change feed would be worthless.
-  if (!prev || !prev.observed_at) return [];
+  // the night we first look at it, and the feed would be worthless.
+  if (!prev) return [];
 
   // Comparing across probe versions attributes our own methodology changes to the site.
-  // Skip one night rather than publish a change nobody made.
-  if (prev.probe_version !== obs.probeVersion) return [];
-  const out: Change[] = [];
+  // Comparing across vantage points attributes the network we happen to be crawling from
+  // to the site: origins genuinely serve differently by geography and IP reputation, and
+  // moving the crawler once produced 25 phantom "changes" per 150 domains before this
+  // guard existed. Skip a night rather than publish a change nobody made.
+  if (prev.obs.probeVersion !== obs.probeVersion) return [];
+  if (prev.obs.vantage !== obs.vantage) return [];
 
-  if (prev.reachable !== null && prev.reachable !== obs.reachable) {
+  const out: ChangeRecord[] = [];
+  const at = obs.observedAt;
+
+  if (prev.obs.reachable !== obs.reachable) {
     out.push({
       domain: obs.domain,
+      changedAt: at,
       kind: 'reachability',
       summary: obs.reachable ? 'Came back online.' : `Went unreachable: ${obs.error ?? 'no response'}.`,
-      before: { reachable: prev.reachable },
-      after: { reachable: obs.reachable, error: obs.error },
     });
   }
 
-  const before = new Set(prev.tier1_blocked ?? []);
+  const before = new Set(prev.obs.tier1Blocked ?? []);
   const after = new Set(obs.tier1Blocked);
   const newlyBlocked = [...after].filter((t) => !before.has(t));
   const newlyAllowed = [...before].filter((t) => !after.has(t));
@@ -75,127 +71,68 @@ function diff(prev: ExistingRow | undefined, obs: Observation, score: Score): Ch
     const parts: string[] = [];
     if (newlyBlocked.length) parts.push(`now blocks ${newlyBlocked.join(', ')}`);
     if (newlyAllowed.length) parts.push(`now allows ${newlyAllowed.join(', ')}`);
-    out.push({
-      domain: obs.domain,
-      kind: 'access',
-      summary: `${obs.domain} ${parts.join('; ')}.`,
-      before: { tier1Blocked: [...before] },
-      after: { tier1Blocked: [...after] },
-    });
+    out.push({ domain: obs.domain, changedAt: at, kind: 'access', summary: `${obs.domain} ${parts.join('; ')}.` });
   }
 
-  if (prev.llms_txt !== obs.llmsTxt.present || prev.agents_md !== obs.agentsMd.present) {
+  if (prev.obs.llmsTxt.present !== obs.llmsTxt.present || prev.obs.agentsMd.present !== obs.agentsMd.present) {
     const bits: string[] = [];
-    if (prev.llms_txt !== obs.llmsTxt.present) bits.push(`llms.txt ${obs.llmsTxt.present ? 'added' : 'removed'}`);
-    if (prev.agents_md !== obs.agentsMd.present) bits.push(`agents.md ${obs.agentsMd.present ? 'added' : 'removed'}`);
-    out.push({
-      domain: obs.domain,
-      kind: 'surface',
-      summary: `${obs.domain}: ${bits.join(', ')}.`,
-      before: { llmsTxt: prev.llms_txt, agentsMd: prev.agents_md },
-      after: { llmsTxt: obs.llmsTxt.present, agentsMd: obs.agentsMd.present },
-    });
+    if (prev.obs.llmsTxt.present !== obs.llmsTxt.present) bits.push(`llms.txt ${obs.llmsTxt.present ? 'added' : 'removed'}`);
+    if (prev.obs.agentsMd.present !== obs.agentsMd.present) bits.push(`agents.md ${obs.agentsMd.present ? 'added' : 'removed'}`);
+    out.push({ domain: obs.domain, changedAt: at, kind: 'surface', summary: `${obs.domain}: ${bits.join(', ')}.` });
   }
 
-  if (
-    prev.score !== null &&
-    score.total !== null &&
-    Math.abs(prev.score - score.total) >= SCORE_NOISE_FLOOR
-  ) {
-    const delta = score.total - prev.score;
+  const prevScore = scoreObservation({ ...prev.obs, access: {} } as Observation).total;
+  if (prevScore !== null && score.total !== null && Math.abs(prevScore - score.total) >= SCORE_NOISE_FLOOR) {
+    const delta = score.total - prevScore;
     out.push({
       domain: obs.domain,
+      changedAt: at,
       kind: 'score',
       summary: `Score ${delta > 0 ? 'rose' : 'fell'} ${Math.abs(delta)} points to ${score.total}.`,
-      before: { score: prev.score },
-      after: { score: score.total },
     });
   }
 
   return out;
 }
 
-function rowFor(obs: Observation, score: Score, prev: ExistingRow | undefined) {
-  const failures = obs.reachable ? 0 : (prev?.consecutive_failures ?? 0) + 1;
-  const demoted = failures >= DEMOTE_AFTER_FAILURES;
+function buildStats(rows: Array<{ obs: Observation; score: Score }>, totalCorpus: number): DailyStats {
+  const observed = rows.filter((r) => r.score.total !== null);
+  const scores = observed.map((r) => r.score.total as number);
 
-  // An operator who disallows CrawlIndexBot leaves the published index immediately. The
-  // methodology page promises exactly this, so it has to happen on the first crawl that
-  // sees the rule, not after a grace period.
-  const excludedReason = obs.optedOut
-    ? 'Opted out via robots.txt'
-    : demoted
-      ? `Unreachable on ${failures} consecutive crawls: ${obs.error ?? 'no response'}`
-      : null;
-
-  return {
-    consecutive_failures: failures,
-    probe_version: obs.probeVersion,
-    indexable: !obs.optedOut && !demoted,
-    excluded_reason: excludedReason,
-    domain: obs.domain,
-    observed_at: obs.observedAt,
-    reachable: obs.reachable,
-    challenged: obs.control.challenged,
-    partial: score.partial,
-    score: score.total,
-    grade: score.grade,
-    tier1_blocked: obs.tier1Blocked,
-    tier2_blocked: obs.tier2Blocked,
-    blocks_any_ai: obs.tier1Blocked.length > 0 || obs.tier2Blocked.length > 0,
-    llms_txt: obs.llmsTxt.present,
-    agents_md: obs.agentsMd.present,
-    cloaking: obs.cloaking.detected,
-    observation: obs,
-    score_detail: score,
+  const cohort = (key: (o: Observation) => string | null) => {
+    const m: Record<string, { total: number; blocking: number }> = {};
+    for (const r of observed) {
+      const k = key(r.obs);
+      if (!k) continue;
+      m[k] ??= { total: 0, blocking: 0 };
+      m[k].total++;
+      if (r.obs.tier1Blocked.length > 0) m[k].blocking++;
+    }
+    return m;
   };
-}
-
-async function refreshDailyStats(db: ReturnType<typeof serviceClient>) {
-  const day = new Date().toISOString().slice(0, 10);
-  const tier1Total = AGENTS.filter((a) => a.tier === 1).length;
-
-  // One server-side aggregate. See migration 0003 for why this is not done client side.
-  const { data: rollup, error: rollupErr } = await db.rpc('daily_rollup', { tier1_total: tier1Total });
-  if (rollupErr) throw new Error(`daily_rollup failed: ${rollupErr.message}`);
-  const r = Array.isArray(rollup) ? rollup[0] : rollup;
-  if (!r) throw new Error('daily_rollup returned no rows.');
-
-  const { data: botRows, error: botErr } = await db.rpc('bot_block_counts');
-  if (botErr) throw new Error(`bot_block_counts failed: ${botErr.message}`);
 
   const perBot: Record<string, number> = {};
-  for (const a of AGENTS) perBot[a.token] = 0;
-  for (const row of (botRows ?? []) as Array<{ token: string; blocked: number }>) {
-    if (row.token in perBot) perBot[row.token] = row.blocked;
+  for (const a of AGENTS) {
+    perBot[a.token] = rows.filter(
+      (r) => r.obs.tier1Blocked.includes(a.token) || r.obs.tier2Blocked.includes(a.token),
+    ).length;
   }
 
-  const { data, error } = await db
-    .from('daily_stats')
-    .upsert(
-      {
-        day,
-        total_domains: r.total_domains,
-        observed: r.observed,
-        avg_score: r.avg_score,
-        blocking_any_tier1: r.blocking_any_tier1,
-        blocking_all_tier1: r.blocking_all_tier1,
-        llms_txt_count: r.llms_txt_count,
-        agents_md_count: r.agents_md_count,
-        cloaking_count: r.cloaking_count,
-        per_bot: perBot,
-      },
-      { onConflict: 'day' },
-    )
-    .select('day');
-  if (error) throw new Error(`daily_stats upsert failed: ${error.message}`);
-  assertWrote(data, 'daily_stats upsert', 1);
-
-  console.log(
-    `
-Daily stats ${day}: ${r.observed}/${r.total_domains} observed, avg ${r.avg_score ?? 'n/a'}, ` +
-      `${r.blocking_any_tier1} blocking at least one answer-surface crawler.`,
-  );
+  return {
+    day: new Date().toISOString().slice(0, 10),
+    totalDomains: totalCorpus,
+    observed: observed.length,
+    meanScore: scores.length ? Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2)) : null,
+    blockingAnyTier1: observed.filter((r) => r.obs.tier1Blocked.length > 0).length,
+    blockingAllTier1: observed.filter((r) => r.obs.tier1Blocked.length >= TIER1.length).length,
+    llmsTxt: observed.filter((r) => r.obs.llmsTxt.present).length,
+    agentsMd: observed.filter((r) => r.obs.agentsMd.present).length,
+    refusedGptbot: observed.filter((r) => r.obs.cloaking.detected).length,
+    paymentRequired: rows.filter((r) => r.obs.control.kind === 'payment-required').length,
+    perBot,
+    perPlatform: cohort((o) => o.stack.platform),
+    perNetwork: cohort((o) => o.stack.network),
+  };
 }
 
 async function main() {
@@ -204,136 +141,122 @@ async function main() {
     const i = args.indexOf(flag);
     return i >= 0 ? Number(args[i + 1]) : dflt;
   };
-  const limit = num('--limit', 2000);
-  const concurrency = num('--concurrency', 16);
+  const limit = num('--limit', 100_000);
+  const concurrency = num('--concurrency', 20);
   const explicitIdx = args.indexOf('--domains');
   const explicit = explicitIdx >= 0 ? args[explicitIdx + 1].split(',').map(normaliseDomain) : null;
 
-  const db = serviceClient();
+  const corpus = readCorpus();
+  if (!corpus.length) throw new Error('Corpus is empty. Run `pnpm seed` first.');
 
-  const { data: run, error: runErr } = await db
-    .from('crawl_runs')
-    .insert({
-      registry_version: REGISTRY_VERSION,
-      rubric_version: RUBRIC_VERSION,
-      probe_version: PROBE_VERSION,
-    })
-    .select('id')
-    .single();
-  if (runErr || !run) throw new Error(`could not open crawl run: ${runErr?.message}`);
-  const runId = run.id as number;
+  const prevRecords = readRecords();
+  const prevByDomain = new Map(prevRecords.map((r) => [r.domain, r]));
+  const corpusByDomain = new Map(corpus.map((c) => [c.domain, c]));
 
-  // Least-recently-observed first, never-observed before that.
-  //
-  // PostgREST caps a single response at `db-max-rows` (1000 on Supabase) and returns a
-  // short list rather than an error, so a --limit above that has to be paged. Without
-  // this the crawler silently works on the first 1000 rows forever and the rest of the
-  // corpus is never measured.
-  const COLS =
-    'domain, observed_at, probe_version, score, reachable, consecutive_failures, tier1_blocked, llms_txt, agents_md, cloaking';
-  const PAGE = 1000;
-  const targets: ExistingRow[] = [];
+  const targets = (explicit ? corpus.filter((c) => explicit.includes(c.domain)) : corpus).slice(0, limit);
 
-  if (explicit) {
-    const { data, error } = await db.from('domains').select(COLS).in('domain', explicit);
-    if (error) throw new Error(`could not load targets: ${error.message}`);
-    targets.push(...((data as unknown as ExistingRow[]) ?? []));
-  } else {
-    for (let from = 0; from < limit; from += PAGE) {
-      const size = Math.min(PAGE, limit - from);
-      const { data, error } = await db
-        .from('domains')
-        .select(COLS)
-        .eq('indexable', true)
-        .order('observed_at', { ascending: true, nullsFirst: true })
-        .order('domain', { ascending: true })
-        .range(from, from + size - 1);
-      if (error) throw new Error(`could not load targets: ${error.message}`);
-      if (!data?.length) break;
-      targets.push(...(data as unknown as ExistingRow[]));
-      if (data.length < size) break;
-    }
-  }
+  const vantage = currentVantage();
+  console.log(
+    `Crawling ${targets.length} domains, concurrency ${concurrency}, vantage ${vantage}, probe ${PROBE_VERSION}.`,
+  );
 
-  if (!targets.length) {
-    console.log('Nothing to crawl.');
-    return;
-  }
-
-  const prevByDomain = new Map<string, ExistingRow>(targets.map((r) => [r.domain, r]));
-  const domains = targets.map((r) => r.domain);
-
-  console.log(`Crawling ${domains.length} domains at concurrency ${concurrency}...`);
   const started = Date.now();
-  let done = 0;
-  let succeeded = 0;
-  let failed = 0;
-  let changesDetected = 0;
+  const published: StoredRecord[] = [];
+  const scoredRows: Array<{ obs: Observation; score: Score }> = [];
+  const changes: ChangeRecord[] = [];
+  const nextCorpus: CorpusEntry[] = [];
 
-  await mapPool(domains, concurrency, async (domain) => {
+  let done = 0;
+  let ok = 0;
+  let failed = 0;
+  let optedOut = 0;
+
+  await mapPool(targets, concurrency, async (entry) => {
     let obs: Observation;
     try {
-      obs = await probeDomain(domain);
-    } catch (e) {
+      obs = await probeDomain(entry.domain);
+    } catch {
       failed++;
       done++;
+      nextCorpus.push({ ...entry, consecutiveFailures: (entry.consecutiveFailures ?? 0) + 1 });
       return null;
     }
+
     const score = scoreObservation(obs);
+    const failures = obs.reachable ? 0 : (entry.consecutiveFailures ?? 0) + 1;
+    const demoted = failures >= DEMOTE_AFTER_FAILURES;
 
-    const { data, error } = await db
-      .from('domains')
-      .update(rowFor(obs, score, prevByDomain.get(domain)))
-      .eq('domain', domain)
-      .select('domain');
-    if (error || !data?.length) {
-      failed++;
-      done++;
-      console.error(`\n  write failed for ${domain}: ${error?.message ?? 'zero rows'}`);
-      return null;
-    }
+    // An operator who names CrawlIndexBot and denies it leaves the published index on
+    // this crawl. The methodology page promises exactly that.
+    const excluded = obs.optedOut
+      ? 'Opted out via robots.txt'
+      : demoted
+        ? `Unreachable on ${failures} consecutive crawls: ${obs.error ?? 'no response'}`
+        : null;
 
-    const changes = diff(prevByDomain.get(domain), obs, score);
-    if (changes.length) {
-      const { error: chErr } = await db.from('changes').insert(changes).select('id');
-      if (chErr) console.error(`\n  change log failed for ${domain}: ${chErr.message}`);
-      else changesDetected += changes.length;
-    }
+    nextCorpus.push({ ...entry, consecutiveFailures: failures, excluded });
 
-    if (obs.reachable) succeeded++;
+    if (obs.optedOut) optedOut++;
+    if (obs.reachable) ok++;
     else failed++;
+
+    if (!excluded) {
+      published.push({
+        domain: entry.domain,
+        rank: entry.rank,
+        firstSeen: entry.firstSeen,
+        obs,
+      });
+      scoredRows.push({ obs, score });
+      changes.push(...diff(prevByDomain.get(entry.domain), obs, score));
+    }
+
     done++;
-    if (done % 25 === 0) {
+    if (done % 50 === 0) {
       pruneGate();
       const rate = done / ((Date.now() - started) / 1000);
-      process.stdout.write(
-        `\r  ${done}/${domains.length}  ok:${succeeded} fail:${failed} changes:${changesDetected}  ${rate.toFixed(1)}/s`,
-      );
+      process.stdout.write(`\r  ${done}/${targets.length}  ok:${ok} fail:${failed} changes:${changes.length}  ${rate.toFixed(1)}/s`);
     }
     return null;
   });
 
-  const elapsed = Math.round((Date.now() - started) / 1000);
+  const durationMs = Date.now() - started;
   console.log(
-    `\rCrawled ${done}/${domains.length} in ${elapsed}s. ok:${succeeded} fail:${failed} changes:${changesDetected}`,
+    `\rCrawled ${done}/${targets.length} in ${Math.round(durationMs / 1000)}s. ok:${ok} fail:${failed} optedOut:${optedOut} changes:${changes.length}`,
   );
 
-  await db
-    .from('crawl_runs')
-    .update({
-      finished_at: new Date().toISOString(),
-      attempted: domains.length,
-      succeeded,
-      failed,
-      changes_detected: changesDetected,
-    })
-    .eq('id', runId)
-    .select('id');
+  // A partial pass must not delete the rest of the dataset. When only a slice was
+  // crawled, carry the untouched records through unchanged.
+  const touched = new Set(targets.map((t) => t.domain));
+  const carried = prevRecords.filter((r) => !touched.has(r.domain) && corpusByDomain.has(r.domain));
+  const allRecords = [...published, ...carried];
 
-  await refreshDailyStats(db);
+  const carriedRows = carried.map((r) => {
+    const obs = r.obs as Observation;
+    return { obs, score: scoreObservation({ ...obs, access: {} } as Observation) };
+  });
+
+  writeRecords(allRecords);
+  if (changes.length) appendChanges(changes);
+  upsertStats(buildStats([...scoredRows, ...carriedRows], allRecords.length));
+
+  // Carry forward corpus entries the run did not touch.
+  const seen = new Set(nextCorpus.map((c) => c.domain));
+  writeCorpus([...nextCorpus, ...corpus.filter((c) => !seen.has(c.domain))]);
+
+  writeMeta({
+    generatedAt: new Date().toISOString(),
+    vantage,
+    probeVersion: PROBE_VERSION,
+    rubricVersion: RUBRIC_VERSION,
+    registryVersion: REGISTRY_VERSION,
+    crawl: { attempted: targets.length, succeeded: ok, failed, durationMs },
+  });
+
+  console.log(`Dataset written: ${allRecords.length} published records.`);
 }
 
 main().catch((e) => {
-  console.error(e instanceof Error ? e.stack ?? e.message : e);
+  console.error(e instanceof Error ? (e.stack ?? e.message) : e);
   process.exit(1);
 });
