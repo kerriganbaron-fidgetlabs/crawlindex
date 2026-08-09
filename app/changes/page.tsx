@@ -1,9 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getRecentChanges } from '../../lib/queries';
-import { PageHeader } from '../../components/ui';
-
-export const revalidate = 3600;
+import { allChanges, latestStats } from '../../lib/dataset';
+import { Attribution, PageHeader } from '../../components/ui';
 
 export const metadata: Metadata = {
   title: 'Recent changes',
@@ -19,21 +17,22 @@ const KIND_LABEL: Record<string, string> = {
   reachability: 'Availability',
 };
 
-export default async function ChangesPage() {
-  const changes = await getRecentChanges(200);
+export default function ChangesPage() {
+  const changes = allChanges().slice(0, 300);
+  const stats = latestStats();
 
   return (
     <>
       <PageHeader
         kicker="Change feed"
         title="What moved recently"
-        lede="Robots.txt edits are never announced. This is every movement the crawler has detected since the index began, newest first. A domain's first measurement is a baseline and is not listed here."
+        lede="Robots.txt edits are never announced. This is every movement the crawler has detected, newest first. A domain's first measurement is a baseline and is not listed, and comparisons are never made across a probe change or a change of crawl location."
       />
 
       {changes.length === 0 ? (
         <p className="border border-rule rounded p-4 bg-raised">
-          No changes recorded yet. The index needs at least two crawls of a domain before it can
-          report movement, so the first entries appear after tonight's run.
+          No changes recorded yet. The index needs at least two comparable crawls of a domain
+          before it can report movement, so the first entries appear after the next run.
         </p>
       ) : (
         <div className="overflow-x-auto border border-rule rounded">
@@ -48,10 +47,10 @@ export default async function ChangesPage() {
               </tr>
             </thead>
             <tbody>
-              {changes.map((c) => (
-                <tr key={c.id} className="border-b border-rule last:border-0">
+              {changes.map((c, i) => (
+                <tr key={`${c.domain}-${i}`} className="border-b border-rule last:border-0">
                   <td className="px-3 py-2 tnum text-muted whitespace-nowrap">
-                    <time dateTime={c.changed_at}>{c.changed_at.slice(0, 10)}</time>
+                    <time dateTime={c.changedAt}>{c.changedAt.slice(0, 10)}</time>
                   </td>
                   <td className="px-3 py-2 text-muted">{KIND_LABEL[c.kind] ?? c.kind}</td>
                   <td className="px-3 py-2">
@@ -66,6 +65,8 @@ export default async function ChangesPage() {
           </table>
         </div>
       )}
+
+      <Attribution subject="Changes in AI crawler policy" measuredOn={stats?.day ?? null} />
     </>
   );
 }

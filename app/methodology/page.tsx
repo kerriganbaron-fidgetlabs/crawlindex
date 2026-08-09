@@ -1,5 +1,8 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { AGENTS, REGISTRY_SNAPSHOT_DATE, REGISTRY_VERSION, TIER1, TIER2 } from '../../lib/agents';
+import { getMeta } from '../../lib/dataset';
+import { NETWORKS, PLATFORMS } from '../../lib/fingerprints';
 import { PROBE_VERSION } from '../../lib/probe';
 import { RUBRIC_VERSION } from '../../lib/score';
 import { SITE } from '../../lib/site';
@@ -47,35 +50,54 @@ const RUBRIC: Array<{ band: string; max: number; rows: Array<[string, number, st
 ];
 
 export default function MethodologyPage() {
+  const meta = getMeta();
+
   return (
     <>
       <PageHeader
         kicker="Methodology"
         title="How the numbers are made"
-        lede="Everything here is checkable. If a score looks wrong to you, this page should let you work out why without asking us."
+        lede="Everything here is checkable. If a score looks wrong to you, this page plus the downloadable observation should let you work out why without asking anyone."
       />
 
       <div className="max-w-2xl space-y-4 leading-relaxed mb-12">
         <h2 className="text-2xl font-bold pt-4">What we request</h2>
         <p>
-          Each measured domain receives five requests, identifying as{' '}
+          Each measured domain receives at most five requests, identifying as{' '}
           <code className="font-mono text-sm">CrawlIndexBot/1.0</code> except where noted:
         </p>
         <ol className="list-decimal pl-6 space-y-1">
-          <li>The homepage, as a mainstream desktop browser. This is the control.</li>
           <li>
-            <code className="font-mono text-sm">/robots.txt</code>, which yields the access policy
-            for every tracked crawler in a single fetch.
+            <code className="font-mono text-sm">/robots.txt</code> first, which yields the access
+            policy for every tracked crawler in one fetch and lets us honour an opt-out before
+            requesting anything else.
           </li>
-          <li>The homepage again, this time as GPTBot, to compare against the control.</li>
+          <li>The homepage, as a mainstream desktop browser. This is the control.</li>
+          <li>The homepage again, as GPTBot, to compare against the control.</li>
           <li><code className="font-mono text-sm">/llms.txt</code></li>
           <li><code className="font-mono text-sm">/agents.md</code></li>
         </ol>
         <p>
-          Requests are rate limited to one per host at a time, carry a{' '}
-          <code className="font-mono text-sm">From</code> header, and time out quickly. We read only
-          what a site serves publicly. We do not log in, do not evaluate JavaScript, and store no
-          personal data.
+          A site whose robots.txt bars all crawlers costs one request, not five. Requests are rate
+          limited to one per host at a time, carry a <code className="font-mono text-sm">From</code>{' '}
+          header, and time out quickly. We read only what a site serves publicly. We do not log in,
+          do not evaluate JavaScript, and store no personal data.
+        </p>
+
+        <h2 className="text-2xl font-bold pt-4">What is derived without extra requests</h2>
+        <p>
+          Publishing platform, edge network, server software, page language, feed and canonical
+          presence, security headers and the sophistication of the robots.txt policy are all read
+          from bytes already fetched. That costs the measured site nothing and is what lets this
+          index cross-tabulate blocking against{' '}
+          <Link href="/networks" className="text-accent underline underline-offset-4">CDN</Link> and{' '}
+          <Link href="/platforms" className="text-accent underline underline-offset-4">platform</Link>.
+        </p>
+        <p>
+          {PLATFORMS.length} platform fingerprints and {NETWORKS.length} network fingerprints are
+          matched, header evidence before markup, most specific first. Nothing is guessed: an
+          unrecognised stack is recorded as unidentified and excluded from cross-tabs, because a
+          wrong label is worse than no label.
         </p>
 
         <h2 className="text-2xl font-bold pt-4">How robots.txt is read</h2>
@@ -88,15 +110,15 @@ export default function MethodologyPage() {
           applies, the crawler is allowed.
         </p>
 
-        <h2 className="text-2xl font-bold pt-4">Four rules that keep this honest</h2>
+        <h2 className="text-2xl font-bold pt-4">Five rules that keep this honest</h2>
         <ol className="list-decimal pl-6 space-y-3">
           <li>
             <strong>No model touches a score.</strong> Scoring is arithmetic over recorded
-            observations. Language models are used nowhere in the measurement or scoring path.
+            observations. Language models are used nowhere in measurement, scoring or report prose.
           </li>
           <li>
             <strong>Unobservable is not zero.</strong> A site we cannot reach has no score and is
-            excluded from every average, rather than being counted as a failure and dragging the
+            excluded from every average, rather than counted as a failure and dragging the
             aggregate down.
           </li>
           <li>
@@ -107,9 +129,15 @@ export default function MethodologyPage() {
             leaderboards, because a score over 46 points is not comparable to one over 100.
           </li>
           <li>
+            <strong>A change must be the site's, not ours.</strong> Nothing is reported as a change
+            when the two observations came from different probe versions or different network
+            vantage points. Improving our own bot-wall detection, or moving where the crawler runs,
+            must never be published as somebody else changing their policy.
+          </li>
+          <li>
             <strong>Everything is versioned.</strong> Each stored measurement records the crawler
-            registry, probe and rubric versions it was produced under, and the full observation is
-            archived so any score can be recomputed later.
+            registry, probe and rubric versions and the vantage it was produced under, and the full
+            observation is archived so any score can be recomputed later.
           </li>
         </ol>
 
@@ -171,23 +199,31 @@ export default function MethodologyPage() {
           </div>
           <div className="flex justify-between border-b border-rule py-1">
             <dt className="text-muted">Crawler registry</dt>
-            <dd className="tnum">
-              {REGISTRY_VERSION} ({AGENTS.length} tokens)
-            </dd>
+            <dd className="tnum">{REGISTRY_VERSION} ({AGENTS.length} tokens)</dd>
           </div>
           <div className="flex justify-between border-b border-rule py-1">
             <dt className="text-muted">Registry snapshot</dt>
             <dd className="tnum">{REGISTRY_SNAPSHOT_DATE}</dd>
           </div>
+          {meta ? (
+            <div className="flex justify-between border-b border-rule py-1">
+              <dt className="text-muted">Last crawl vantage</dt>
+              <dd className="tnum">{meta.vantage}</dd>
+            </div>
+          ) : null}
         </dl>
         <p className="text-sm text-muted mt-6 max-w-2xl">
-          Corrections are welcome and get fixed rather than argued about. Write to{' '}
-          <a href={`mailto:${SITE.contact}`} className="text-accent underline underline-offset-4">
-            {SITE.contact}
+          Everything above is checkable against the{' '}
+          <Link href="/data" className="text-accent underline underline-offset-4">
+            downloadable dataset
+          </Link>{' '}
+          and the{' '}
+          <a href={SITE.repo} className="text-accent underline underline-offset-4">
+            source
           </a>
-          . To have your domain excluded from the index, disallow{' '}
-          <code className="font-mono text-sm">CrawlIndexBot</code> in your robots.txt and it will
-          drop out on the next crawl.
+          . To have a domain excluded, disallow{' '}
+          <code className="font-mono text-sm">CrawlIndexBot</code> in its robots.txt and it drops
+          out on the next crawl.
         </p>
       </section>
     </>

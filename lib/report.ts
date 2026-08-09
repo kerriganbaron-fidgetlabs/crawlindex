@@ -1,14 +1,17 @@
 import { AGENTS } from './agents';
-import { publicClient } from './supabase';
-import type { DailyStats } from './queries';
+import { allChanges, allStats, networkCohorts, platformCohorts, type Cohort, type DailyStats } from './dataset';
+import { networkLabel, platformLabel } from './fingerprints';
 
 /**
  * Monthly report data.
  *
- * The prose around these numbers is templated rather than model-written, for the same
- * reason no model touches a score: a report that gets cited has to say the same thing
- * every time it is regenerated. A sentence that drifts between renders is not a citable
- * source.
+ * Prose around these numbers is templated, not model-written, for the same reason no
+ * model touches a score: a report that gets cited has to say the same thing every time it
+ * is regenerated. A sentence that drifts between renders is not a citable source.
+ *
+ * Reports appear automatically. `getReportMonths` derives the list from whatever days
+ * exist in the stats series, so the moment a crawl runs in a new month, that month's
+ * report exists, is linked, and is in the sitemap. Nobody has to publish anything.
  */
 
 export type MonthReport = {
@@ -24,8 +27,9 @@ export type MonthReport = {
     meanScore: number | null;
   };
   bots: Array<{ token: string; operator: string; tier: 1 | 2; blocked: number; delta: number; share: number }>;
-  changeCounts: Record<string, number>;
-  notableChanges: Array<{ domain: string; summary: string; changed_at: string; kind: string }>;
+  platforms: Cohort[];
+  networks: Cohort[];
+  notableChanges: Array<{ domain: string; summary: string; changedAt: string; kind: string }>;
 };
 
 export function monthLabel(month: string): string {
@@ -37,53 +41,31 @@ export function monthLabel(month: string): string {
   });
 }
 
-/** Months that have at least one day of data, newest first. */
-export async function getReportMonths(): Promise<string[]> {
-  const { data, error } = await publicClient()
-    .from('daily_stats')
-    .select('day')
-    .order('day', { ascending: false })
-    .limit(1000);
-  if (error) return [];
-  const months = new Set((data ?? []).map((r: { day: string }) => r.day.slice(0, 7)));
-  return [...months];
+/** Every month with at least one crawl. No human curation, no publish step. */
+export function getReportMonths(): string[] {
+  const months = new Set(allStats().map((s) => s.day.slice(0, 7)));
+  return [...months].sort().reverse();
 }
 
-export async function getMonthReport(month: string): Promise<MonthReport | null> {
+export function getMonthReport(month: string): MonthReport | null {
   if (!/^\d{4}-\d{2}$/.test(month)) return null;
-  const db = publicClient();
 
-  const { data: rows, error } = await db
-    .from('daily_stats')
-    .select('*')
-    .gte('day', `${month}-01`)
-    .lte('day', `${month}-31`)
-    .order('day', { ascending: true });
-  if (error || !rows?.length) return null;
+  const series = allStats().filter((s) => s.day.startsWith(month));
+  if (!series.length) return null;
 
-  const series = rows as DailyStats[];
   const first = series[0];
   const last = series[series.length - 1];
 
-  const { data: changeRows } = await db
-    .from('changes')
-    .select('domain, summary, changed_at, kind')
-    .gte('changed_at', `${month}-01T00:00:00Z`)
-    .lte('changed_at', `${month}-31T23:59:59Z`)
-    .order('changed_at', { ascending: false })
-    .limit(500);
-
-  const changeCounts: Record<string, number> = {};
-  for (const c of changeRows ?? []) changeCounts[c.kind] = (changeCounts[c.kind] ?? 0) + 1;
+  const changes = allChanges().filter((c) => c.changedAt.startsWith(month));
 
   const bots = AGENTS.map((a) => {
-    const blocked = last.per_bot?.[a.token] ?? 0;
+    const blocked = last.perBot?.[a.token] ?? 0;
     return {
       token: a.token,
       operator: a.operator,
       tier: a.tier,
       blocked,
-      delta: blocked - (first.per_bot?.[a.token] ?? 0),
+      delta: blocked - (first.perBot?.[a.token] ?? 0),
       share: last.observed ? (blocked / last.observed) * 100 : 0,
     };
   }).sort((x, y) => y.blocked - x.blocked);
@@ -95,24 +77,28 @@ export async function getMonthReport(month: string): Promise<MonthReport | null>
     last,
     days: series.length,
     deltas: {
-      blockingAnyTier1: last.blocking_any_tier1 - first.blocking_any_tier1,
-      llmsTxt: last.llms_txt_count - first.llms_txt_count,
-      agentsMd: last.agents_md_count - first.agents_md_count,
+      blockingAnyTier1: last.blockingAnyTier1 - first.blockingAnyTier1,
+      llmsTxt: last.llmsTxt - first.llmsTxt,
+      agentsMd: last.agentsMd - first.agentsMd,
       meanScore:
-        last.avg_score !== null && first.avg_score !== null
-          ? Number((last.avg_score - first.avg_score).toFixed(2))
+        last.meanScore !== null && first.meanScore !== null
+          ? Number((last.meanScore - first.meanScore).toFixed(2))
           : null,
     },
     bots,
-    changeCounts,
-    // Crawler-policy reversals are the interesting ones. Score drift is noise by comparison.
-    notableChanges: (changeRows ?? []).filter((c) => c.kind === 'access' || c.kind === 'surface').slice(0, 40),
+    // Cross-tabs come from the live dataset rather than the daily snapshot: they describe
+    // the current population, and recomputing keeps one source of truth.
+    platforms: platformCohorts().slice(0, 12),
+    networks: networkCohorts().slice(0, 10),
+    notableChanges: changes.filter((c) => c.kind === 'access' || c.kind === 'surface').slice(0, 40),
   };
 }
 
-/** "rose by 12" / "fell by 3" / "did not change". Used so the prose never contradicts the table. */
+/** "rose by 12" / "fell by 3" / "did not change". Keeps prose from contradicting a table. */
 export function movement(delta: number, unit = ''): string {
   if (delta === 0) return `did not change${unit ? ` ${unit}` : ''}`;
-  const dir = delta > 0 ? 'rose' : 'fell';
-  return `${dir} by ${Math.abs(delta).toLocaleString()}${unit ? ` ${unit}` : ''}`;
+  return `${delta > 0 ? 'rose' : 'fell'} by ${Math.abs(delta).toLocaleString()}${unit ? ` ${unit}` : ''}`;
 }
+
+export const cohortLabel = (kind: 'platform' | 'network', id: string) =>
+  (kind === 'platform' ? platformLabel(id) : networkLabel(id)) ?? id;

@@ -7,8 +7,6 @@ out
 *.tsbuildinfo
 next-env.d.ts
 .vercel
-data/tranco*.csv
-data/tranco*.zip
 .DS_Store
 .secrets/
 
@@ -16,3 +14,4 @@ data/tranco*.zip
 server.log
 crawl.log
 logs/
+public/data/

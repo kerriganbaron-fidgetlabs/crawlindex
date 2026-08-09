@@ -1,0 +1,52 @@
+# Licence
+
+This repository contains two different things under two different licences.
+
+## The data: CC BY 4.0
+
+Everything in `data/`, and everything published at https://crawlindex.org derived from it,
+is licensed under the Creative Commons Attribution 4.0 International licence.
+
+https://creativecommons.org/licenses/by/4.0/
+
+You may copy, redistribute, transform and build upon it, including commercially. The only
+condition is attribution:
+
+> CrawlIndex by Fidget Labs BV. https://crawlindex.org. Licensed CC BY 4.0.
+
+Please also include the measurement date alongside any figure you quote, so the claim
+stays checkable as the index moves.
+
+## The code: all rights reserved
+
+Copyright (c) 2026 Fidget Labs BV. All rights reserved.
+
+Everything that is not in `data/` is source code, and no licence is granted for it. It is
+published so that the methodology behind the data is auditable: you can read it, check
+that the numbers are produced the way the methodology page claims, and recompute any score
+from a stored observation to verify it.
+
+You may not copy, modify, redistribute or create derivative works of the code without
+prior written permission from Fidget Labs BV.
+
+Being able to verify how a public dataset is produced does not require the right to take
+the software. The data is the gift; the code is the receipt.
+
+### On forking
+
+GitHub's Terms of Service grant every user the ability to view and fork any public
+repository, and that permission cannot be revoked by a repository owner. Forking this
+repository is therefore technically possible and not a violation of GitHub's terms.
+
+It grants you no licence to the code. The fork button copies bytes; it does not transfer
+rights. Running, modifying, publishing or building a product on this code still requires
+written permission, and none is given here.
+
+The data in `data/` is the exception, and it is genuinely yours to take: CC BY 4.0, no
+permission needed, attribution only.
+
+## Contact
+
+There is no support address for this project by design. To remove a domain from the index,
+disallow `CrawlIndexBot` in its robots.txt; the crawler checks that before requesting
+anything else and the domain drops out on the next run.

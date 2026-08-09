@@ -1,17 +1,22 @@
+import { allDomains, getDomain } from '../../../lib/dataset';
 import { normaliseDomain } from '../../../lib/http';
-import { getDomain } from '../../../lib/queries';
 
 /**
  * The embeddable score badge.
  *
- * This is the growth loop, so it has constraints an ordinary route does not: it must
- * render on somebody else's page with no network access to us beyond this one request,
- * survive being cached for a day, and never break their layout. So: hand-built SVG, no
- * external font (system stack only), fixed dimensions, and a hard-coded fallback for a
- * domain we have never measured.
+ * This renders on somebody else's page, so it has constraints an ordinary route does not:
+ * no external font (system stack only), fixed dimensions, no network dependency beyond
+ * this one file, and a graceful fallback for a domain we have never measured. It is
+ * generated statically, so an embedding site is fetching a static SVG from a CDN and
+ * nothing can be slow or fail at request time.
  */
 
-export const revalidate = 3600;
+export const dynamic = 'force-static';
+export const dynamicParams = false;
+
+export function generateStaticParams() {
+  return allDomains().map((r) => ({ slug: `${r.domain}.svg` }));
+}
 
 const W = 196;
 const H = 28;
@@ -24,11 +29,8 @@ const COLOURS: Record<string, string> = {
   F: '#a32020',
 };
 
-function esc(s: string): string {
-  return s.replace(/[<>&"']/g, (c) =>
-    ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]!,
-  );
-}
+const esc = (s: string) =>
+  s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]!);
 
 function svg(label: string, value: string, colour: string, title: string): string {
   const labelW = 118;
@@ -47,26 +49,18 @@ function svg(label: string, value: string, colour: string, title: string): strin
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ slug: string }> }) {
-  const slug = (await params).slug;
-  const domain = normaliseDomain(slug.replace(/\.svg$/i, ''));
+  const domain = normaliseDomain((await params).slug.replace(/\.svg$/i, ''));
+  const row = getDomain(domain);
 
-  let body: string;
-  try {
-    const row = await getDomain(domain);
-    if (!row || row.score === null || !row.grade) {
-      body = svg(domain.slice(0, 26), 'n/a', '#5e5b52', `${domain} is not scored on CrawlIndex`);
-    } else {
-      body = svg(
-        domain.slice(0, 26),
-        `${row.score} ${row.grade}`,
-        COLOURS[row.grade] ?? '#5e5b52',
-        `CrawlIndex agent readiness score for ${domain}: ${row.score} out of 100, grade ${row.grade}`,
-      );
-    }
-  } catch {
-    // A badge on someone else's page must never render an error.
-    body = svg(domain.slice(0, 26), 'n/a', '#5e5b52', `${domain} score unavailable`);
-  }
+  const body =
+    !row || row.score.total === null || !row.score.grade
+      ? svg(domain.slice(0, 26), 'n/a', '#5e5b52', `${domain} is not scored on CrawlIndex`)
+      : svg(
+          domain.slice(0, 26),
+          `${row.score.total} ${row.score.grade}`,
+          COLOURS[row.score.grade] ?? '#5e5b52',
+          `CrawlIndex agent readiness score for ${domain}: ${row.score.total} out of 100, grade ${row.score.grade}`,
+        );
 
   return new Response(body, {
     headers: {

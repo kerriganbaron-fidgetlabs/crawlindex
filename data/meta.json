@@ -1,0 +1,13 @@
+{
+  "generatedAt": "2026-08-09T16:52:55.177Z",
+  "vantage": "local",
+  "probeVersion": "2.0.0",
+  "rubricVersion": "1.0.0",
+  "registryVersion": "1.0.0",
+  "crawl": {
+    "attempted": 5006,
+    "succeeded": 3676,
+    "failed": 1330,
+    "durationMs": 1405759
+  }
+}

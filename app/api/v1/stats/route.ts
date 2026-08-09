@@ -1,46 +1,61 @@
 import { AGENTS } from '../../../../lib/agents';
-import { getLatestStats, getStatsHistory } from '../../../../lib/queries';
+import { allStats, getMeta, latestStats, networkCohorts, platformCohorts, tldCohorts } from '../../../../lib/dataset';
 import { SITE } from '../../../../lib/site';
 
-export const revalidate = 3600;
+export const dynamic = 'force-static';
 
-export async function GET(req: Request) {
-  const history = new URL(req.url).searchParams.get('history') === 'true';
-
-  const [latest, series] = await Promise.all([
-    getLatestStats(),
-    history ? getStatsHistory(365) : Promise.resolve([]),
-  ]);
-
+export async function GET() {
+  const latest = latestStats();
   if (!latest) {
     return Response.json({ error: 'no_data', message: 'No crawl has completed yet.' }, { status: 503 });
   }
+
+  const meta = getMeta();
+  const cohort = (c: { id: string; observed: number; blockingAny: number; blockingRate: number; meanScore: number | null }) => ({
+    id: c.id,
+    sites: c.observed,
+    blockingAnyAnswerSurfaceCrawler: c.blockingAny,
+    blockingRatePercent: Number(c.blockingRate.toFixed(2)),
+    meanScore: c.meanScore,
+  });
 
   return new Response(
     JSON.stringify(
       {
         day: latest.day,
-        domainsIndexed: latest.total_domains,
+        generatedAt: meta?.generatedAt ?? null,
+        vantage: meta?.vantage ?? null,
+        versions: {
+          probe: meta?.probeVersion ?? null,
+          rubric: meta?.rubricVersion ?? null,
+          registry: meta?.registryVersion ?? null,
+        },
+        domainsIndexed: latest.totalDomains,
         domainsScored: latest.observed,
-        meanScore: latest.avg_score,
-        blockingAnyAnswerSurfaceCrawler: latest.blocking_any_tier1,
-        blockingAllAnswerSurfaceCrawlers: latest.blocking_all_tier1,
-        publishingLlmsTxt: latest.llms_txt_count,
-        publishingAgentsMd: latest.agents_md_count,
+        meanScore: latest.meanScore,
+        blockingAnyAnswerSurfaceCrawler: latest.blockingAnyTier1,
+        blockingAllAnswerSurfaceCrawlers: latest.blockingAllTier1,
+        publishingLlmsTxt: latest.llmsTxt,
+        publishingAgentsMd: latest.agentsMd,
         // Requests identifying as GPTBot that were refused or curtailed while a browser
         // was served normally. Includes sites whose robots.txt already blocks GPTBot, so
-        // this is not by itself evidence of a contradiction. Use the per-domain endpoint,
-        // which reports `contradictsStatedPolicy`, to separate the two cases.
-        refusedGptbotAtTheServer: latest.cloaking_count,
+        // this alone is not evidence of a contradiction. The per-domain endpoint reports
+        // `contradictsStatedPolicy`, which separates the two cases.
+        refusedGptbotAtTheServer: latest.refusedGptbot,
+        chargingForCrawlAccess: latest.paymentRequired,
         blockedByCrawler: AGENTS.map((a) => ({
           token: a.token,
           operator: a.operator,
           tier: a.tier,
-          blockedBy: latest.per_bot?.[a.token] ?? 0,
+          blockedBy: latest.perBot?.[a.token] ?? 0,
         })),
-        ...(history ? { history: series } : {}),
-        license: 'CC BY 4.0',
-        attribution: SITE.url,
+        byNetwork: networkCohorts().map(cohort),
+        byPlatform: platformCohorts().map(cohort),
+        byTld: tldCohorts().slice(0, 40).map(cohort),
+        history: allStats(),
+        bulkDownload: `${SITE.url}/data/domains.jsonl`,
+        license: SITE.licence,
+        attribution: `${SITE.publisher}, ${SITE.url}`,
       },
       null,
       2,

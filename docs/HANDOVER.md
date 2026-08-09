@@ -1,216 +1,195 @@
 # CrawlIndex handover
 
-**Written:** 2026-08-09, end of the session that built it.
-**Status:** Live, running, and **not an income project**. Read "The verdict" before doing anything.
-**Audience:** the next Claude agent, plus Kerrigan.
+**Last updated:** 2026-08-09, end of the final build session.
+**Status:** Live at https://crawlindex.org, public, self-running, EUR 0/month.
+**Audience:** whoever touches this next, human or agent. Probably nobody, which is the point.
 
 ---
 
-## 1. The original goal
+## 1. What this is, and what it is not
 
-Verbatim intent from Kerrigan:
+CrawlIndex is a public measurement project: a nightly crawl of the most-visited domains on
+the web, publishing how each one treats AI crawlers and agents, with the full dataset free
+under CC BY 4.0.
 
-> Review everything we have done together and determine the best path to creating an income
-> stream not dependent on my inputs and then action it. [...] The stream needs to be able to
-> manage autonomously with little or no oversight. Be able to generate passive income or active
-> income if it's agent run. Have its own marketing or self-promotion outside of myself. I can
-> seed you up to 250 euros for this project. Beyond that the goal is passive profitability.
+**It is not an income project.** That was the original brief and it failed on the evidence.
+Section 3 records why, so nobody re-runs the experiment.
 
-Available: Ollama with Qwen3 on 8GB VRAM, the Fidget Labs Vercel account, Supabase, Docker
-Desktop, and anything already built. Excluded: AtomDigit. Standing constraints from
-`Global_CLAUDE.md`: no Upwork, no X/Twitter, no ongoing direct selling, no maintenance-heavy
-regulatory products, no competing with hyperscalers in saturated categories.
-
-**The finding that framed everything:** Markwright, imageclean.app and the Architecture & AI
-Report are all live with working payment rails and have **zero paying customers between them**.
-The bottleneck was never building. It was distribution. So selection was driven almost entirely
-by "does marketing happen without Kerrigan."
+What it *is*: a genuinely useful open dataset, a credibility asset for Fidget Labs, and a
+demonstration that a public good can be built so it costs nothing and needs nobody.
 
 ---
 
-## 2. What was investigated, and why each was rejected
+## 2. The original goal and how we got here
 
-| Option | Verdict | Evidence |
-|---|---|---|
-| Paid MCP servers, x402, agent payments | Rejected | Infrastructure is real (Cloudflare Monetization Gateway, Stripe Machine Payments, x402 Foundation) but revenue is not. One operator publicly reported zero conversions across 169M x402 payments. |
-| Shopify app: AI readiness | Rejected | Shopify ships `/llms.txt`, `/agents.md` and `.well-known/ucp` **natively**, and 6+ apps already hold the category (Booster 5,226 reviews, Avada 354, SearchPie 2,317). |
-| Apify Store actors | Rejected | ~54,000 listings, creator pays the compute out of earnings, and scrapers break when target sites change. Fails the no-oversight test outright. |
-| Chrome Web Store | Deprioritised | Real organic discovery but no native payments since Google retired them, low ARPU, and Manifest V3 churn. |
-| Gumroad / Lemon Squeezy | Rejected | Median Gumroad creator earns ~$72/month. Discovery is weak; it is a checkout, not a channel. |
-| **Public measurement index** | **Chosen** | Reused the `fidget-ai-report` probe engine, near-zero marginal cost, and a confirmed gap: aggregate studies exist (NeuralCrawl, HasData) but no per-domain browsable index with history. |
+The brief was to find and build an income stream needing no operator input, with its own
+marketing, seeded at EUR 250, aiming at passive profitability.
 
-**The reasoning error, stated plainly so it is not repeated.** Selection optimised for *"is the
-distribution structural"* and never asked *"will anyone pay."* The research tools to answer the
-second question were available the whole time and were not pointed at it until Kerrigan asked
-after the build. That is the identical failure mode that produced three customer-less products.
-**Validate demand before writing code.**
+Options investigated and rejected, with evidence:
 
----
+| Option | Why not |
+|---|---|
+| Paid MCP servers, x402 | Infrastructure shipped (Cloudflare Monetization Gateway, Stripe Machine Payments) but revenue did not. One operator publicly reported zero conversions across 169M x402 payments. |
+| Shopify app, AI readiness | Shopify ships `/llms.txt`, `/agents.md` and `.well-known/ucp` natively, and 6+ apps already own the category. |
+| Shopify app, anything | 30+ day review waits against an 8-10 day SLA, 1-star reviews triggered by Shopify's own billing behaviour, "most installs never turn into revenue". It is a support business. |
+| Apify actors | ~54,000 listings, creator pays compute, scrapers break constantly. Fails the no-oversight test. |
+| Gumroad / Lemon Squeezy | Median creator earns ~$72/month. A checkout, not a channel. |
 
-## 3. What got built
-
-A public index of how the web treats AI agents. A nightly crawler measures Tranco-ranked
-domains and publishes a deterministic 0-100 score per domain, per-crawler blocker lists, a
-change feed, dated monthly reports, a JSON API and an embeddable SVG badge.
-
-- **Live:** https://crawlindex.vercel.app
-- **Repo:** `kerriganbaron-fidgetlabs/crawlindex` (private)
-- **Supabase:** `hhwvttuhnhqkehcvouxv`, Frankfurt. Pooler host is **aws-0**-eu-central-1.
-- **Vercel:** project `crawlindex`, scope `kerriganbaron-9965s-projects`.
-- **Schedule:** GitHub Actions `.github/workflows/nightly-crawl.yml`, 02:30 UTC. The Windows
-  scheduled task that originally ran this was **removed**; it made a hands-off project depend
-  on the gaming PC being awake.
-
-First full crawl: 4,378 indexable, 3,654 scored, mean 63.78. 665 block at least one
-answer-surface crawler, 161 block all of them. 448 publish `llms.txt`, 27 publish `agents.md`.
-Lighthouse 100/100/100/100 on every page checked. 30/30 unit tests.
-
-### Four rules the code enforces, and why
-
-These are the difference between a citable index and a discredited one. `tests/` pins all four.
-Do not relax them.
-
-1. **No model in the scoring path.** `scoreObservation` is a pure function over archived
-   evidence. Prose is written afterwards, never as an input.
-2. **Unobservable is `null`, never 0**, and excluded from aggregates.
-3. **A measurement we failed to take is never charged to the site.** When the control request
-   meets a bot wall, body-derived checks are marked unavailable and the total is renormalised,
-   flagged `partial`, and kept out of leaderboards.
-4. **`robots.txt` is read first.** A group naming `CrawlIndexBot` and denying it is an opt-out
-   that costs the operator one request. The methodology page promises this, so it must stay true.
-
-### Five bugs found during the build, all fixed
-
-Each was caught because a number looked wrong, not because a test failed. Keep that habit.
-
-1. **Reddit scored 3/100** because our own crawler hit a JavaScript proof-of-work wall.
-   Publishing that would have been a lie about Reddit. Led to rule 3.
-2. **Blanket blocks were treated as opt-outs.** A site with `User-agent: * / Disallow: /` was
-   being dropped entirely, which silently deleted the **163 most restrictive operators** from an
-   index whose subject *is* restrictiveness. Only a group that names `CrawlIndexBot` is an opt-out.
-3. **PostgREST silently truncates reads at 1,000 rows** (`db-max-rows`). It hit the crawl queue,
-   the sitemap, and a published average. Page with `.range()` or move it into SQL.
-4. **Change detection compared across probe versions**, so improving our own bot-wall detection
-   was about to publish "example.com now blocks GPTBot" for sites that had done nothing.
-   `domains.probe_version` now suppresses the comparison on a mismatch.
-5. **Node `fetch` hides every transport error** behind the string "fetch failed". The real cause
-   is on `err.cause`. Unwrapped in `describeFetchError`.
-
-### One known defect, not yet fixed
-
-Moving the crawler from the Builder machine to GitHub's runners produced **25 "changes" across
-150 domains on a same-day re-crawl**. Different network vantage point, different results:
-cloaking detection compares response byte sizes, and some origins serve differently by geography
-or IP reputation. The change feed will be polluted by any future move.
-
-**The fix is the same shape as bug 4:** stamp each row with the vantage point that produced it
-(`domains.vantage`, e.g. `builder-nl` / `gha-ubuntu`) and suppress diffing across a mismatch.
-Roughly an hour. Do this before anyone relies on the change feed.
+CrawlIndex was built on the reasoning that its distribution was structural (SEO, badge
+backlinks, citable reports). That reasoning had a hole, described next.
 
 ---
 
-## 4. The verdict
+## 3. Why it is not a business, and do not try again
 
-**CrawlIndex is a good artifact and a bad business. It is out of the income column.**
-Kerrigan reached this before the evidence did; the evidence agrees.
+**The reasoning error:** selection optimised for *"is the distribution structural"* and
+never asked *"will anyone pay"*. The research to answer the second question was available
+the whole time and was not run until after the build. That is the same failure that
+produced three other live products with no paying customers.
 
-- **Nobody pays for crawler-policy data.** HasData's AI Crawler Block Index and Originality.ai's
-  GPTBot studies are content marketing for their real products. NeuralCrawl shows no business.
-  It is a study category, not a product category.
+**The evidence against monetising this specifically:**
+
+- **Nobody pays for crawler-policy data.** HasData's AI Crawler Block Index and
+  Originality.ai's GPTBot studies are content marketing for their real products.
+  NeuralCrawl shows no business at all. It is a study category, not a product category.
 - **The one profitable comparable proves the opposite point.** BuiltWith is ~$14M ARR with
-  effectively one employee, selling *prospecting lists*. Buyers trace "sites using Shopify" to
-  sales revenue. "Who blocks GPTBot" traces to nothing.
-- **Search demand is thin.** Tens to low hundreds per month for brand queries, low thousands for
-  head terms, already split across a dozen free `llms.txt` checkers.
-- **The badge growth loop will not fire.** SSL Labs badges work because security is a trust
-  signal that *buyers* care about. No merchant's customer cares about an agent-readiness score.
+  effectively one employee, selling *prospecting lists*. Buyers trace "sites using Shopify"
+  to sales revenue. "Who blocks GPTBot" traces to nothing.
+- **Search demand is thin.** Tens to low hundreds a month for brand queries, low thousands
+  for head terms, already split across a dozen free `llms.txt` checkers.
+- **The badge loop will not fire.** SSL Labs badges work because security is a trust signal
+  *buyers* care about. No merchant's customer cares about an agent-readiness score.
 
-**Do not try to monetise this by bolting on Stripe.** There is no buyer with budget and urgency.
-
----
-
-## 5. Costs, measured
-
-| Item | Real cost | Notes |
-|---|---|---|
-| Supabase project | **~EUR 20/mo** | The org is past the free-tier project allowance, so this project adds compute cost. This is the only real recurring cost and the one worth acting on. |
-| Vercel | EUR 0 incremental | Rides the existing Pro plan. |
-| GitHub Actions | EUR 0 today, but **65% of the allowance** | Measured: 150 domains in 97s wall. A full 5,050 pass is ~43 min, so ~1,300 of the 2,000 free private-repo minutes per month. An earlier estimate of 690 minutes was wrong; it used the faster Builder timing. |
-| Electricity | EUR 0 now | Was non-zero when the crawl ran on the gaming PC. Removed. |
-
-### Making the Actions cost genuinely zero
-
-**Make the repo public.** Public repos get unlimited Actions minutes. The dataset is CC BY 4.0,
-all credentials live in Actions secrets, and "open index" is the positioning anyway. One command,
-removes the constraint permanently.
-
-### Making the Supabase cost zero, three ways
-
-1. **Fold the four tables into the existing `fidget-ai-report` Supabase project and delete the
-   `crawlindex` one.** ~30 minutes, EUR 0 incremental, everything else unchanged. Thematically
-   adjacent: same probe lineage, same subject. **Cheapest correct move.**
-2. **Remove the database entirely.** This product genuinely does not need one: ~4,400 rows that
-   change once a day. The Action can crawl, write sharded JSON into `public/data/`, diff against
-   the currently deployed summary to keep change detection, and deploy. ~3-4 hours. Most elegant,
-   and a fully static 4,400-page site is a better showcase than one with a database behind it.
-3. **Leave it and sunset.** EUR 20/mo for three months is ~EUR 60, which is less than the agent
-   time either rebuild costs. **If the plan is to shut it down anyway, this is the rational choice.**
-
----
-
-## 6. Open items
-
-1. **`crawlindex.org`** — Kerrigan chose to buy it ($8.49/yr). Blocked: Vercel domain
-   registration needs registrant WHOIS details that exist nowhere on this machine. Needs street
-   address, postcode, and a `+31` phone number. **Do not invent these.** After purchase: set
-   `NEXT_PUBLIC_SITE_URL`, redeploy, and canonicals/sitemap/`llms.txt` all follow automatically.
-2. **Vantage-point stamping** for change detection. See section 3.
-3. **Repo visibility** decision. See section 5.
-4. **Supabase** decision. See section 5.
-
----
-
-## 7. Guidance for the next agent
-
-**Do not keep building on CrawlIndex as an income play.** It is finished as a product. The only
-work worth doing on it is the cost reduction in section 5 and the vantage-point fix, and only if
-Kerrigan decides to keep it running.
-
-**On the original goal, which is still unmet.** The honest structural finding: *fully passive +
-self-marketing + profitable + no audience + no selling* has almost no real solutions. Every
-candidate that survives the distribution test fails the passivity test. Shopify apps carry
-30+ day review waits against an 8-10 day SLA, 1-star reviews triggered by Shopify's own billing
-behaviour, and "most installs never turn into revenue." Marketplace products are support
-businesses.
+**Do not bolt Stripe onto this.** There is no buyer with budget and urgency.
 
 `Global_CLAUDE.md` already says it: *"Path is consulting margin and product revenue, not
-speculative passive products."* Kerrigan was right before the question was asked. If the next
-session revisits this, the realistic framings are:
-
-- Productise the MACH/AI Readiness Audit with agent-assisted delivery. Semi-passive, uses the
-  actual moat, and `aireport` plus CrawlIndex become credibility assets that feed it.
-- Give one of the three existing live products distribution, rather than building a fourth.
-- Accept "low-maintenance, not passive" at ~3-5 hours a month, which opens up options that are
-  closed at zero hours.
-
-**And validate demand before writing code.** That is the single lesson of this build.
+speculative passive products."* That was right before the question was asked.
 
 ---
 
-## 8. Operating notes
+## 4. How it runs, and why nothing needs maintaining
 
 ```
-pnpm probe nytimes.com      # one domain, no writes, prints observation and score
-pnpm test                   # robots semantics and score determinism, 30 tests
-pnpm crawl --limit 6000     # full pass, ~23 min local, ~43 min on a hosted runner
-pnpm seed --count 5000      # refresh Tranco ranks, retro-apply exclusion rules
+GitHub Actions, 02:30 UTC daily
+  pnpm test     -> broken rubric publishes nothing
+  pnpm seed     -> Mondays only, refreshes Tranco ranks and re-applies exclusions
+  pnpm crawl    -> ~40 min, writes data/
+  pnpm build    -> a dataset that cannot build is not published
+  opens a PR and merges it
+    -> Vercel deploys main
 ```
 
-- Secrets: `.secrets/` is gitignored and holds the Supabase DB password and pooler host.
-  Actions secrets hold `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
-- Supabase direct DB host is IPv6-only from Builder. Use the session pooler,
-  **aws-0**-eu-central-1 for this project (markwright is aws-1, so probe both).
-- The site reads Supabase through ISR, so a finished crawl is live within the hour with no
-  deploy step.
-- The corpus maintains itself: hosts failing three consecutive crawls are demoted with a
-  recorded reason, and the Monday re-seed refreshes ranks.
+Every failure mode was designed out rather than monitored:
+
+- **No database.** The dataset is JSON Lines in `data/`, committed. Nothing to pause,
+  expire, exhaust a free tier, or fall over at 3am. Git history is the provenance, which is
+  a feature for a public dataset rather than a workaround.
+- **No secrets in the site.** No API keys, no service-role tokens, nothing to rotate. The
+  Action uses only the built-in `GITHUB_TOKEN`.
+- **No server.** Every page, JSON endpoint and badge is a static file. There is no runtime
+  that can be slow or down. The single exception is `/check`, which runs a live probe.
+- **Failure is safe.** A crawl that dies writes nothing, so the previously published
+  dataset stays deployed. A seed failure keeps yesterday's corpus. A corrupt data line is
+  skipped rather than crashing the build.
+- **The corpus maintains itself.** Hosts failing three consecutive crawls are demoted with
+  a recorded reason; the Monday re-seed refreshes ranks and retro-applies exclusion rules.
+- **Cost is structurally zero.** Public repo means unlimited Actions minutes; static site
+  on an existing Vercel plan; no database.
+
+### Costs, measured not guessed
+
+| Item | Cost |
+|---|---|
+| Supabase | **Removed.** Was ~EUR 20/mo. The project was deleted; the dataset moved into git. |
+| GitHub Actions | EUR 0. Public repos get unlimited minutes. A full pass is ~40 min. |
+| Vercel | EUR 0 incremental, rides the existing plan. Static output, so no function cost. |
+| Domain | ~$9/yr, `crawlindex.org`, registered to 2027-08-09, auto-renew on. |
+| Electricity | EUR 0. The crawl no longer runs on the Builder machine. |
+
+**If the repo is ever made private again**, Actions stops being free: ~40 min/night is
+~1,200 of the 2,000 free monthly minutes. Revisit the schedule if that happens.
+
+---
+
+## 5. Design decisions worth understanding before changing anything
+
+### The five rules
+
+They are in the README and enforced by `tests/`. The two least obvious:
+
+**A measurement we failed to take is never charged to the site.** Reddit scored 3/100 in an
+early run because our own crawler hit a JavaScript proof-of-work wall. Publishing that
+would have been a lie about Reddit. Bot-wall responses now mark body-derived lines
+unavailable and renormalise the total over what remains.
+
+**A change must be the site's, not ours.** Change detection refuses to diff across a probe
+version or a vantage change. Both were real incidents: a probe improvement nearly published
+"example.com now blocks GPTBot" for sites that had done nothing, and moving the crawler from
+Windows to GitHub's runners produced 25 phantom changes per 150 domains.
+
+### Blanket blocks are not opt-outs
+
+A site with `User-agent: * / Disallow: /` is telling every crawler to stay out, and we
+honour that by fetching no pages. But it is **not** the same as naming `CrawlIndexBot`.
+Treating it as an opt-out silently deleted the 163 most restrictive operators from an index
+whose subject is restrictiveness. Only a group that names the token is an opt-out.
+
+### Why records archive observations, not scores
+
+`data/domains.jsonl` stores the evidence; `lib/dataset.ts` recomputes every score on load.
+That guarantees a leaderboard can never disagree with a detail page, and it means a rubric
+change re-scores history instead of orphaning it. `access` is omitted on disk because it is
+fully implied by the blocked lists, saving ~600 bytes a record.
+
+### Why JSON Lines, sorted, with stable key order
+
+All three keep the nightly git commit small. An unsorted or unstable-key file rewrites every
+line every night and turns a 4MB dataset into gigabytes of history within a year.
+
+---
+
+## 6. Known limits, stated honestly
+
+- **Single vantage point.** Everything is measured from GitHub's US/EU runners. Origins
+  serve differently by geography and IP reputation, so the index describes what an agent on
+  that network sees. `vantage` is recorded on every record and change detection respects it,
+  but the geographic bias is real and undisclosed nowhere else.
+- **Cloaking detection is byte-size based.** `botBytes < browserBytes * 0.25` plus explicit
+  refusals. Dynamic pages vary legitimately, so treat individual results as indicative and
+  the aggregate as sound.
+- **Fingerprints will drift.** Platforms and CDNs change their headers. A wrong label
+  poisons a cross-tab, so the rule is: never guess, `null` is fine, and cohorts under 25
+  sites are not published.
+- **Forking cannot be disabled.** GitHub only permits that on org-owned *private* repos, and
+  their terms grant fork rights on public repos regardless. The LICENSE reserves all code
+  rights instead; forking copies bytes, not permission.
+- **`/check` is the one dynamic route.** It needs `outputFileTracingIncludes` in
+  `next.config.mjs` to read the dataset at runtime. Remove that and it breaks in production
+  while working perfectly locally.
+
+---
+
+## 7. If you change something
+
+- **Changing the rubric** means bumping `RUBRIC_VERSION`. Historical records keep the
+  version they were scored under, and scores are recomputed from evidence on load, so a
+  rubric change re-scores the whole history consistently. That is intended.
+- **Changing the probe** means bumping `PROBE_VERSION`, which suppresses change detection
+  for one night. That is intended too.
+- **Adding a crawler token** means bumping `REGISTRY_VERSION`. Check
+  `TIER1.length` assumptions if you add a tier-1 token.
+- **Adding a fingerprint** needs a test in `tests/fingerprints.test.ts`, including a
+  negative case proving it does not fire on prose that merely mentions the vendor.
+- Run `pnpm test` before anything. Forty-eight tests, and they exist because each one
+  corresponds to a real mistake that reached production or nearly did.
+
+---
+
+## 8. Open items
+
+1. **Nothing is required.** The site runs indefinitely without intervention. Everything
+   below is optional.
+2. Reports publish themselves: the first crawl in a new month creates that month's report,
+   links it and adds it to the sitemap. No human step exists.
+3. If a cross-tab ever looks implausible, the likely cause is a fingerprint misfiring.
+   `pnpm probe <domain>` prints the detection for one site without writing anything.

@@ -1,3 +1,5 @@
+import { setMaxListeners } from 'node:events';
+
 /**
  * Polite HTTP for unsolicited measurement.
  *
@@ -5,6 +7,10 @@
  * identify honestly, rate limit per host, cap body size, hard timeout, never retry a
  * 4xx. A measurement project that behaves like an abusive scraper deserves to be blocked.
  */
+
+// Node warns once concurrency passes ten in-flight AbortSignals. The crawl is bounded by
+// mapPool, not by this, so the warning is noise in the CI log rather than a leak.
+setMaxListeners(64);
 
 /** The robots.txt token operators can use to opt out. Honoured before any other request. */
 export const PROBE_TOKEN = 'CrawlIndexBot';
@@ -99,8 +105,10 @@ export async function politeFetch(url: string, opts: FetchOpts = {}): Promise<Fe
       signal: ctrl.signal,
       headers: {
         'user-agent': opts.ua ?? PROBE_UA,
-        // An operator who wants us gone has a name and a page to go to.
-        from: 'bot@crawlindex.org',
+        // No `From` header. The convention expects a real mailbox and this project has
+        // none by design, so advertising an address nobody reads would be worse than
+        // omitting it. The user agent carries a URL that explains who we are, how to read
+        // the results, and how to opt out without contacting anyone.
         accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'accept-language': 'en',
         ...opts.headers,

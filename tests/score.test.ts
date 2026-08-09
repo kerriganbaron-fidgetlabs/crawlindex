@@ -16,23 +16,40 @@ function observation(over: Partial<Observation> = {}): Observation {
     finalUrl: 'https://example.com/',
     error: null,
     optedOut: false,
+    https: true,
+    vantage: 'test',
     control: { challenged: false, reason: null, kind: 'none' as const },
-    robots: { present: true, blocksAllCrawlers: false, sitemapDeclared: true, namedTokens: [] },
+    robots: {
+      present: true,
+      blocksAllCrawlers: false,
+      sitemapDeclared: true,
+      namedTokens: [],
+      groupCount: 1,
+      usesAllowRules: false,
+      crawlDelay: null,
+      bytes: 100,
+    },
     access,
     tier1Blocked: [],
     tier2Blocked: [],
     cloaking: { tested: true, browserBytes: 50_000, botStatus: 200, botBytes: 50_000, detected: false },
-    llmsTxt: { present: true, specValid: true, issues: [] },
-    agentsMd: { present: true },
+    llmsTxt: { present: true, specValid: true, issues: [], bytes: 200, linkCount: 3 },
+    agentsMd: { present: true, bytes: 200 },
     structured: { jsonLdTypes: ['Organization', 'WebSite', 'BreadcrumbList'], hasOrganization: true, hasWebSite: true },
     content: {
       title: 'Example',
+      lang: 'en',
       ssrTextLength: 4000,
       h1Count: 1,
       landmarks: ['main', 'nav', 'footer'],
       imagesTotal: 10,
       imagesWithAlt: 10,
+      feed: false,
+      canonical: true,
+      metaNoindex: false,
     },
+    stack: { platform: null, network: null, server: null },
+    security: { hsts: true, csp: false, xContentTypeOptions: true },
     ...over,
   };
 }
@@ -103,14 +120,14 @@ describe('access band', () => {
 describe('surface band', () => {
   it('gives partial credit for an off-spec llms.txt', () => {
     const s = scoreObservation(
-      observation({ llmsTxt: { present: true, specValid: false, issues: ['no H1 title'] } }),
+      observation({ llmsTxt: { present: true, specValid: false, issues: ['no H1 title'], bytes: 100, linkCount: 0 } }),
     );
     expect(s.total).toBe(96);
   });
 
   it('charges a missing llms.txt once, not twice', () => {
     const s = scoreObservation(
-      observation({ llmsTxt: { present: false, specValid: false, issues: [] } }),
+      observation({ llmsTxt: { present: false, specValid: false, issues: [], bytes: 0, linkCount: 0 } }),
     );
     expect(s.total).toBe(88);
     expect(s.partial).toBe(false);
@@ -122,10 +139,10 @@ describe('a challenged control request is never charged to the site', () => {
     observation({
       control: { challenged: true, reason: 'Cloudflare interstitial', kind: 'bot-challenge' as const },
       // Everything below is what a bot wall returns, not what the site publishes.
-      llmsTxt: { present: false, specValid: false, issues: [] },
-      agentsMd: { present: false },
+      llmsTxt: { present: false, specValid: false, issues: [], bytes: 0, linkCount: 0 },
+      agentsMd: { present: false, bytes: 0 },
       structured: { jsonLdTypes: [], hasOrganization: false, hasWebSite: false },
-      content: { title: null, ssrTextLength: 6, h1Count: 0, landmarks: [], imagesTotal: 0, imagesWithAlt: 0 },
+      content: { ...observation().content, title: null, ssrTextLength: 6, h1Count: 0, landmarks: [], imagesTotal: 0, imagesWithAlt: 0 },
       cloaking: { tested: true, browserBytes: 8000, botStatus: 403, botBytes: 1500, detected: true },
     });
 
@@ -153,7 +170,7 @@ describe('a challenged control request is never charged to the site', () => {
       access: Object.fromEntries(AGENTS.map((a) => [a.token, false])),
       tier1Blocked: TIER1.map((a) => a.token),
       tier2Blocked: TIER2.map((a) => a.token),
-      robots: { present: true, blocksAllCrawlers: true, sitemapDeclared: false, namedTokens: [] },
+      robots: { ...observation().robots, blocksAllCrawlers: true, sitemapDeclared: false },
     });
     // Only the 3 robots.txt points survive, out of 46 observable.
     expect(s.total).toBe(7);
@@ -185,7 +202,7 @@ describe('structure band', () => {
 describe('determinism', () => {
   it('reproduces an identical score from the same archived observation', () => {
     const obs = observation({
-      llmsTxt: { present: false, specValid: false, issues: [] },
+      llmsTxt: { present: false, specValid: false, issues: [], bytes: 0, linkCount: 0 },
       content: { ...observation().content, ssrTextLength: 900, h1Count: 3 },
     });
     const a = scoreObservation(obs);
@@ -199,12 +216,12 @@ describe('determinism', () => {
         access: Object.fromEntries(AGENTS.map((a) => [a.token, false])),
         tier1Blocked: TIER1.map((a) => a.token),
         tier2Blocked: TIER2.map((a) => a.token),
-        robots: { present: false, blocksAllCrawlers: true, sitemapDeclared: false, namedTokens: [] },
+        robots: { ...observation().robots, present: false, blocksAllCrawlers: true, sitemapDeclared: false },
         cloaking: { tested: true, browserBytes: 1000, botStatus: 403, botBytes: 0, detected: true },
-        llmsTxt: { present: false, specValid: false, issues: [] },
-        agentsMd: { present: false },
+        llmsTxt: { present: false, specValid: false, issues: [], bytes: 0, linkCount: 0 },
+        agentsMd: { present: false, bytes: 0 },
         structured: { jsonLdTypes: [], hasOrganization: false, hasWebSite: false },
-        content: { title: null, ssrTextLength: 0, h1Count: 0, landmarks: [], imagesTotal: 0, imagesWithAlt: 0 },
+        content: { ...observation().content, title: null, ssrTextLength: 0, h1Count: 0, landmarks: [], imagesTotal: 0, imagesWithAlt: 0 },
       }),
     );
     expect(s.total).toBe(0);
