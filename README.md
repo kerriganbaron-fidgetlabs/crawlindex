@@ -2,6 +2,9 @@
 
 The open index of how the web treats AI agents.
 
+> **Read [`docs/HANDOVER.md`](docs/HANDOVER.md) first.** It records the goal this was built
+> against, why it is **not** an income project, the measured costs, and the open decisions.
+
 Live: https://crawlindex.vercel.app
 
 A nightly crawler measures Tranco-ranked domains and publishes, per domain, which AI
@@ -73,9 +76,12 @@ pnpm test                            # robots semantics and score determinism
 
 ## Operations
 
-- Nightly crawl runs on the Builder machine via Task Scheduler at 03:30, logging to
-  `logs/`. The site reads Supabase through ISR, so a finished crawl is live within the
-  hour and no deploy is involved.
+- Nightly crawl runs on **GitHub Actions** at 02:30 UTC (`.github/workflows/nightly-crawl.yml`).
+  It previously ran on the Builder machine via Task Scheduler; that made a hands-off project
+  depend on the gaming PC being awake, so it was moved. A full pass is ~43 min on a hosted
+  runner, which is ~1,300 of the 2,000 free private-repo minutes per month. Making the repo
+  public removes that limit. The site reads Supabase through ISR, so a finished crawl is live
+  within the hour and no deploy is involved.
 - Re-seeding on Mondays refreshes Tranco ranks and demotes newly recognised
   infrastructure hosts.
 - Domains that fail at the transport layer three crawls running are demoted out of the

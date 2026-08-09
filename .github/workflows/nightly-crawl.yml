@@ -4,8 +4,18 @@ name: Nightly crawl
 #
 # The gaming PC was the wrong host: the crawl only ran when that machine happened to be
 # awake, it burned electricity, and it made a supposedly hands-off project depend on
-# Kerrigan's hardware. A hosted runner removes all three. ~23 minutes a night is ~690 of
-# the 2,000 free private-repo minutes per month, so this costs nothing.
+# Kerrigan's hardware. A hosted runner removes all three.
+#
+# COST, measured not guessed. A 150-domain run took 97s wall (75s of crawl). Hosted
+# runners are slower than the Builder machine, roughly 0.5s per domain against 0.28s.
+# A full 5,050-domain pass is therefore ~43 minutes, so ~1,300 minutes a month against
+# the 2,000 free minutes a private repo gets. That is 65% of the whole account allowance
+# consumed by one project, which is not "free" in any useful sense.
+#
+# Making this repository PUBLIC removes the limit entirely: public repos get unlimited
+# Actions minutes. The dataset is CC BY 4.0 and all credentials live in Actions secrets,
+# so there is nothing here to keep private. Until that happens, treat the minute budget
+# as a real constraint and do not add a second scheduled job.
 
 on:
   schedule:
