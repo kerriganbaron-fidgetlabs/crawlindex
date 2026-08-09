@@ -11,3 +11,5 @@ data/tranco*.csv
 data/tranco*.zip
 .DS_Store
 .secrets/
+
+.vercel
