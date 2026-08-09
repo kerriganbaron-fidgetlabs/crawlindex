@@ -100,7 +100,7 @@ Every failure mode was designed out rather than monitored:
 
 | Item | Cost |
 |---|---|
-| Supabase | **Removed.** Was ~EUR 20/mo. The project was deleted; the dataset moved into git. |
+| Supabase | **Deleted 2026-08-09.** Was ~EUR 20/mo. Project `hhwvttuhnhqkehcvouxv` is gone; the dataset lives in git. |
 | GitHub Actions | EUR 0. Public repos get unlimited minutes. A full pass is ~40 min. |
 | Vercel | EUR 0 incremental, rides the existing plan. Static output, so no function cost. |
 | Domain | ~$9/yr, `crawlindex.org`, registered to 2027-08-09, auto-renew on. |
@@ -147,6 +147,21 @@ All three keep the nightly git commit small. An unsorted or unstable-key file re
 line every night and turns a 4MB dataset into gigabytes of history within a year.
 
 ---
+
+## 5b. Repository settings that the pipeline depends on
+
+These are not in code, so they are invisible until they break something. All three were
+discovered by the pipeline failing.
+
+- **Actions may create and approve pull requests.** `default_workflow_permissions: write`
+  and `can_approve_pull_request_reviews: true` on
+  `/repos/.../actions/permissions/workflow`. Off by default; without it the nightly run
+  crawls successfully and then dies at `gh pr create`.
+- **Ruleset `protect main`** (id 20608407) requires a pull request with zero approvals and
+  no bypass actors. Zero approvals is what lets the bot merge its own PR. Requiring one
+  would stall the pipeline forever.
+- **Squash merge and auto-delete branch enabled**, so data branches do not accumulate.
+- **The repository must stay public** for Actions minutes to be free.
 
 ## 6. Known limits, stated honestly
 
