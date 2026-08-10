@@ -15,8 +15,17 @@
  */
 
 import { AGENTS, REGISTRY_VERSION, TIER1 } from '../lib/agents';
-import { resetDatasetCache, type ChangeRecord, type DailyStats, type StoredRecord } from '../lib/dataset';
+import {
+  resetDatasetCache,
+  withAccess,
+  type ChangeRecord,
+  type DailyStats,
+  type StoredRecord,
+} from '../lib/dataset';
+import { assessRun, lastTrustworthy } from '../lib/health';
+import { buildStats } from '../lib/stats';
 import { buildFrozenReport, resetReportCache, unsealedMonths } from '../lib/report';
+import { isEntrypoint } from './entrypoint';
 import { mapPool, normaliseDomain, pruneGate } from '../lib/http';
 import { currentVantage, PROBE_VERSION, probeDomain } from '../lib/probe';
 import { RUBRIC_VERSION, scoreObservation } from '../lib/score';
@@ -25,6 +34,7 @@ import {
   appendChanges,
   readCorpus,
   readRecords,
+  readStats,
   upsertStats,
   writeCorpus,
   writeFrozenReport,
@@ -39,7 +49,7 @@ const DEMOTE_AFTER_FAILURES = 3;
 /** Only movements worth telling someone about. A one-point drift is noise. */
 const SCORE_NOISE_FLOOR = 3;
 
-function diff(prev: StoredRecord | undefined, obs: Observation, score: Score): ChangeRecord[] {
+export function diff(prev: StoredRecord | undefined, obs: Observation, score: Score): ChangeRecord[] {
   // A domain's first observation is its baseline, not a change. Without this guard every
   // site that already blocks a crawler would announce itself as "now blocks GPTBot" on
   // the night we first look at it, and the feed would be worthless.
@@ -83,7 +93,10 @@ function diff(prev: StoredRecord | undefined, obs: Observation, score: Score): C
     out.push({ domain: obs.domain, changedAt: at, kind: 'surface', summary: `${obs.domain}: ${bits.join(', ')}.` });
   }
 
-  const prevScore = scoreObservation({ ...prev.obs, access: {} } as Observation).total;
+  // MUST go through withAccess. The archived record has no access map on disk, and
+  // scoreObservation reads a missing token as "allowed", so rescoring it raw awards a free
+  // 38 points and reports the difference as the site having got worse overnight.
+  const prevScore = scoreObservation(withAccess(prev.obs)).total;
   if (prevScore !== null && score.total !== null && Math.abs(prevScore - score.total) >= SCORE_NOISE_FLOOR) {
     const delta = score.total - prevScore;
     out.push({
@@ -97,46 +110,6 @@ function diff(prev: StoredRecord | undefined, obs: Observation, score: Score): C
   return out;
 }
 
-function buildStats(rows: Array<{ obs: Observation; score: Score }>, totalCorpus: number): DailyStats {
-  const observed = rows.filter((r) => r.score.total !== null);
-  const scores = observed.map((r) => r.score.total as number);
-
-  const cohort = (key: (o: Observation) => string | null) => {
-    const m: Record<string, { total: number; blocking: number }> = {};
-    for (const r of observed) {
-      const k = key(r.obs);
-      if (!k) continue;
-      m[k] ??= { total: 0, blocking: 0 };
-      m[k].total++;
-      if (r.obs.tier1Blocked.length > 0) m[k].blocking++;
-    }
-    return m;
-  };
-
-  const perBot: Record<string, number> = {};
-  for (const a of AGENTS) {
-    perBot[a.token] = rows.filter(
-      (r) => r.obs.tier1Blocked.includes(a.token) || r.obs.tier2Blocked.includes(a.token),
-    ).length;
-  }
-
-  return {
-    day: new Date().toISOString().slice(0, 10),
-    totalDomains: totalCorpus,
-    observed: observed.length,
-    meanScore: scores.length ? Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2)) : null,
-    blockingAnyTier1: observed.filter((r) => r.obs.tier1Blocked.length > 0).length,
-    blockingAllTier1: observed.filter((r) => r.obs.tier1Blocked.length >= TIER1.length).length,
-    llmsTxt: observed.filter((r) => r.obs.llmsTxt.present).length,
-    agentsMd: observed.filter((r) => r.obs.agentsMd.present).length,
-    refusedGptbot: observed.filter((r) => r.obs.cloaking.detected).length,
-    paymentRequired: rows.filter((r) => r.obs.control.kind === 'payment-required').length,
-    perBot,
-    perPlatform: cohort((o) => o.stack.platform),
-    perNetwork: cohort((o) => o.stack.network),
-  };
-}
-
 async function main() {
   const args = process.argv.slice(2);
   const num = (flag: string, dflt: number) => {
@@ -145,6 +118,14 @@ async function main() {
   };
   const limit = num('--limit', 100_000);
   const concurrency = num('--concurrency', 20);
+  /**
+   * Bypass the health gate and allow a same-day snapshot to be replaced.
+   *
+   * The recovery path: once a quarantine is understood, or once a step change in the numbers
+   * is known to be legitimate (a rubric bump re-scores the whole corpus, for instance), the
+   * operator says so explicitly rather than the crawler guessing.
+   */
+  const force = args.includes('--force');
   const explicitIdx = args.indexOf('--domains');
   const explicit = explicitIdx >= 0 ? args[explicitIdx + 1].split(',').map(normaliseDomain) : null;
 
@@ -233,14 +214,54 @@ async function main() {
   const carried = prevRecords.filter((r) => !touched.has(r.domain) && corpusByDomain.has(r.domain));
   const allRecords = [...published, ...carried];
 
+  // Same rule as change detection: a carried record is an archived record, so its access map
+  // has to be rebuilt before it can be scored. Getting this wrong inflated meanScore for
+  // every untouched domain on any --limit or --domains run.
   const carriedRows = carried.map((r) => {
-    const obs = r.obs as Observation;
-    return { obs, score: scoreObservation({ ...obs, access: {} } as Observation) };
+    const obs = withAccess(r.obs);
+    return { obs, score: scoreObservation(obs) };
   });
 
+  const stats = buildStats([...scoredRows, ...carriedRows], allRecords.length, {
+    attempted: targets.length,
+    succeeded: ok,
+    crawled: published.length,
+    carried: carried.length,
+  });
+
+  /**
+   * The health gate.
+   *
+   * Compare against the last day we were willing to quote, not the last day on file, so a
+   * second bad night in a row is measured against known-good figures rather than against
+   * the first bad night.
+   */
+  const baseline = lastTrustworthy(readStats());
+  const verdict = force
+    ? { suspect: false, reasons: [] }
+    : assessRun(baseline, stats, {
+        attempted: targets.length,
+        succeeded: ok,
+        scoreChanges: changes.filter((c) => c.kind === 'score').length,
+      });
+
+  if (verdict.suspect) {
+    stats.suspect = true;
+    stats.suspectReasons = verdict.reasons;
+    console.error('\nRUN QUARANTINED. This day will not enter the record:');
+    for (const r of verdict.reasons) console.error(`  - ${r}`);
+    console.error(
+      '\nObservations are still written, because they are the evidence needed to diagnose it.\n' +
+        'No change records are appended and the day cannot be sealed into a monthly report.\n' +
+        'Re-run with --force once the cause is understood, or after the next clean crawl.',
+    );
+  }
+
   writeRecords(allRecords);
-  if (changes.length) appendChanges(changes);
-  upsertStats(buildStats([...scoredRows, ...carriedRows], allRecords.length));
+  // A quarantined run does not get to write history. A change record is a claim about a
+  // named site, and a run we do not trust must not make claims about anybody.
+  if (changes.length && !verdict.suspect) appendChanges(changes);
+  upsertStats(stats, { force });
 
   // Carry forward corpus entries the run did not touch.
   const seen = new Set(nextCorpus.map((c) => c.domain));
@@ -273,7 +294,11 @@ async function main() {
   }
 }
 
-main().catch((e) => {
-  console.error(e instanceof Error ? (e.stack ?? e.message) : e);
-  process.exit(1);
-});
+// Guarded so `tests/crawl-diff.test.ts` can import `diff()` without launching a live crawl.
+// Same reason as seed.ts and intake.ts: a worker that runs on import is a landmine.
+if (isEntrypoint(import.meta.url)) {
+  main().catch((e) => {
+    console.error(e instanceof Error ? (e.stack ?? e.message) : e);
+    process.exit(1);
+  });
+}

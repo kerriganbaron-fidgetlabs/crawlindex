@@ -153,6 +153,16 @@ export type Observation = {
     tableCount: number;
     /** Extractable text as a fraction of total bytes. Low means expensive to read. */
     textRatio: number;
+
+    /**
+     * Paths the probe ran out of time to request, on a deadline-bounded run.
+     *
+     * Only `/check` sets a deadline, because it runs inside a serverless function with a
+     * hard ceiling. A skipped check is **not** an absence: scoring `/llms.txt` as missing
+     * because we gave up before asking would charge the site for our own impatience, which
+     * is design rule 3. Every line reading a path listed here is marked unavailable.
+     */
+    skippedChecks?: string[];
   };
 
   /** Detected from the same bytes. Null means unrecognised, never guessed. */

@@ -1,58 +1,63 @@
 import Link from 'next/link';
 import { AGENTS, agentSlug, TIER1 } from '../lib/agents';
+import { BANDS, examplesIn, GRADE_MEANING } from '../lib/bands';
 import {
+  activeQuarantine,
   allChanges,
-  countPolicyGaps,
-  facetCounts,
   latestStats,
   leaderboard,
   networkCohorts,
-  observedRows,
   platformCohorts,
-  scoreHistogram,
+  scoredRows,
 } from '../lib/dataset';
 import { groupByEntity } from '../lib/entities';
-import { POSTURE_LABEL } from '../lib/facets';
+import { findingsDataset, findingsFaq, findingsFrom } from '../lib/findings-jsonld';
+import { POSTURE_LABEL, type PolicyPosture } from '../lib/facets';
 import { SITE } from '../lib/site';
 import { Attribution, CohortTable, EntityTable, PageMeta, StatTile } from '../components/ui';
-import { Histogram, PolicyQuadrant, RankedBars, UnitChart } from '../components/charts';
+import { PolicyQuadrant, RankedBars, UnitChart } from '../components/charts';
+import { Distribution } from '../components/distribution';
 import { CountUp, GrowBar, Reveal } from '../components/motion';
 import { Explain } from '../components/explain';
 
 const pct = (n: number, d: number) => (d === 0 ? 0 : (n / d) * 100);
 const pctStr = (n: number, d: number) => `${Math.round(pct(n, d))}%`;
 
+/**
+ * Where each figure on this page comes from, because the distinction is invisible in the
+ * markup and getting it wrong was a real defect.
+ *
+ * **Dated findings come from the daily snapshot** (`latestStats()`), computed over one
+ * population in one pass at crawl time. Every headline number, every percentage, every
+ * facet count. These are the figures somebody might quote, so they must all share a
+ * denominator and a date.
+ *
+ * **Views come from the live dataset** — cohort tables, leaderboards, the change feed. They
+ * describe the dataset as it stands rather than a measurement taken on a particular day.
+ *
+ * The bug this replaced: the policy-gap tile divided a live count over every record by an
+ * `observed` count from the snapshot. Two different populations, presented as a percentage.
+ */
 export default function HomePage() {
   const stats = latestStats();
+  const quarantine = activeQuarantine();
   const observed = stats?.observed ?? 0;
-  const rows = observedRows();
 
   const changes = allChanges().slice(0, 6);
   const networks = networkCohorts().slice(0, 8);
   const platforms = platformCohorts().slice(0, 6);
   const worst = groupByEntity(leaderboard('bottom', 200)).slice(0, 10);
 
-  // The quadrant. Both halves of this have been measured since the first crawl and nobody
-  // had crossed them, which is why it leads the page.
-  const gaps = countPolicyGaps();
-  const quadrant = {
-    gap: gaps,
-    openHonest: rows.filter((r) => r.obs.access['GPTBot'] !== false && !r.gap.gap).length,
-    blockedHonest: rows.filter(
-      (r) => r.obs.access['GPTBot'] === false && r.obs.cloaking.botStatus >= 400,
-    ).length,
-    declaredOnly: rows.filter(
-      (r) =>
-        r.obs.access['GPTBot'] === false &&
-        r.obs.cloaking.tested &&
-        r.obs.cloaking.botStatus > 0 &&
-        r.obs.cloaking.botStatus < 400,
-    ).length,
-  };
+  // Snapshot, not live. Both halves of the quadrant have been measured since the first
+  // crawl and nobody had crossed them, which is why it leads the page.
+  const gaps = stats?.policyGaps ?? 0;
+  const quadrant = stats?.quadrant ?? { gap: 0, openHonest: 0, blockedHonest: 0, declaredOnly: 0 };
 
-  const postures = facetCounts((r) => r.posture);
-  const deliberate = postures.find((p) => p.id === 'deliberate')?.count ?? 0;
-  const inherited = postures.find((p) => p.id === 'inherited')?.count ?? 0;
+  const postures = Object.entries(stats?.perPosture ?? {})
+    .map(([id, count]) => ({ id: id as PolicyPosture, count }))
+    .sort((a, b) => b.count - a.count);
+  const deliberate = stats?.perPosture?.deliberate ?? 0;
+  const inherited = stats?.perPosture?.inherited ?? 0;
 
   const botRows = AGENTS.map((a) => ({ ...a, blocked: stats?.perBot?.[a.token] ?? 0 })).sort(
     (a, b) => b.blocked - a.blocked,
@@ -63,8 +68,89 @@ export default function HomePage() {
 
   const blockingShare = pct(stats?.blockingAnyTier1 ?? 0, observed);
 
+  /**
+   * The distribution. Buckets come from the snapshot so the chart agrees with every other
+   * figure on the page; the example domains come from the live dataset because they are a
+   * view, not a dated finding, and they link straight through to the sites themselves.
+   */
+  const histogram = stats?.histogram ?? [];
+  const comparable = histogram.reduce((a, b) => a + b, 0);
+  const scored = scoredRows();
+
+  // The median, read off the histogram rather than the row list, so it belongs to the same
+  // population as the bars it is drawn over. Interpolated within the band it lands in.
+  const median = (() => {
+    if (!comparable) return null;
+    const target = comparable / 2;
+    let seen = 0;
+    for (const b of BANDS) {
+      const n = histogram[b.index] ?? 0;
+      if (seen + n >= target) {
+        const within = n === 0 ? 0 : (target - seen) / n;
+        return Math.round(b.from + within * (b.to - b.from));
+      }
+      seen += n;
+    }
+    return null;
+  })();
+
+  // Where the bulk actually sits, stated rather than left for the reader to eyeball.
+  const midBandShare = comparable
+    ? (([5, 6, 7].reduce((sum, i) => sum + (histogram[i] ?? 0), 0) / comparable) * 100)
+    : 0;
+
+  /**
+   * The same findings, three ways: a Dataset with denominators and units, an FAQ an answer
+   * engine can lift a sentence from, and a visible list at the foot of the page. All three
+   * are generated from one array, so they cannot disagree with each other or with the
+   * figures above them.
+   */
+  const findings = stats ? findingsFrom(stats) : [];
+
   return (
     <>
+      {stats && findings.length ? (
+        <>
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(findingsDataset(stats, findings)) }}
+          />
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(findingsFaq(findings)) }}
+          />
+        </>
+      ) : null}
+
+      {/*
+        A quarantined run is not a failure, so nothing else would say it happened. The
+        figures below are the last day that passed the health check, which is the honest
+        thing to show, but silently serving yesterday's numbers under today's date would
+        not be.
+      */}
+      {quarantine ? (
+        <section className="mb-10 border-l-4 border-warn bg-raised p-4" aria-labelledby="quarantine">
+          <h2 id="quarantine" className="font-semibold mb-1">
+            The most recent crawl was quarantined
+          </h2>
+          <p className="text-sm mb-2">
+            The run on <time dateTime={quarantine.day}>{quarantine.day}</time> produced figures
+            implausible enough that they are not being published. Everything below is from{' '}
+            <time dateTime={stats?.day}>{stats?.day}</time>, the last crawl that passed.
+          </p>
+          <ul className="text-sm text-muted list-disc pl-5 space-y-1">
+            {(quarantine.suspectReasons ?? []).map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+          <p className="text-sm mt-2">
+            <Link href="/coverage" className="text-accent underline underline-offset-4">
+              How this check works
+            </Link>
+          </p>
+        </section>
+      ) : null}
+
       <section className="mb-16">
         <p className="font-mono text-xs uppercase tracking-widest text-accent mb-3 flex items-center gap-2">
           <span aria-hidden="true" className="live-dot inline-block w-1.5 h-1.5 rounded-full bg-accent" />
@@ -182,7 +268,7 @@ export default function HomePage() {
             <strong className="text-ink tnum">{gaps.toLocaleString()}</strong> sites turn out to be
             enforcing a policy they never published.
           </p>
-          <PolicyQuadrant counts={quadrant} total={rows.length} />
+          <PolicyQuadrant counts={quadrant} total={observed} />
           <p className="mt-4 text-sm">
             <Link href="/findings#policy-gap" className="text-accent underline underline-offset-4">
               Which sites, and why it happens
@@ -226,11 +312,11 @@ export default function HomePage() {
                     <div className="flex justify-between text-sm mb-1">
                       <span className="font-medium">{POSTURE_LABEL[p.id]}</span>
                       <span className="tnum text-muted">
-                        {p.count.toLocaleString()} ({pctStr(p.count, rows.length)})
+                        {p.count.toLocaleString()} ({pctStr(p.count, observed)})
                       </span>
                     </div>
                     <GrowBar
-                      percent={pct(p.count, rows.length)}
+                      percent={pct(p.count, observed)}
                       label={`${POSTURE_LABEL[p.id]}: ${p.count} sites`}
                     />
                   </li>
@@ -347,14 +433,75 @@ export default function HomePage() {
           <h2 id="spread" className="text-2xl font-bold mb-1">
             How the web scores
           </h2>
-          <p className="text-sm text-muted mb-5 max-w-2xl">
-            The distribution across every fully measured site. Most of the web sits in the middle:
-            not hostile to agents, just never set up for them.
+          <p className="text-sm text-muted mb-6 max-w-2xl">
+            Every fully measured site, in ten-point bands, tinted by the grade each band falls
+            under. The shape is the finding:{' '}
+            {midBandShare > 0 ? (
+              <>
+                <strong className="text-ink tnum">{Math.round(midBandShare)}%</strong> of the web
+                sits between 50 and 79.{' '}
+              </>
+            ) : null}
+            Not hostile to agents, not ready for them either. Hover or tab through a band to see
+            what is in it.
           </p>
-          <Histogram buckets={scoreHistogram()} />
+
+          {histogram.length ? (
+            <Distribution
+              buckets={histogram}
+              total={comparable}
+              median={median}
+              panels={BANDS.map((b) => {
+                const n = histogram[b.index] ?? 0;
+                const examples = examplesIn(scored, b);
+                return (
+                  <div className="border border-rule rounded p-4 bg-raised">
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-1">
+                      <h3 className="font-bold">
+                        Scores {b.label}
+                        <span className="text-muted font-normal"> . {b.gradeLabel}</span>
+                      </h3>
+                      <span className="tnum text-sm text-muted">
+                        {n.toLocaleString()} sites, {comparable ? ((n / comparable) * 100).toFixed(1) : '0'}% of the
+                        index
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted leading-relaxed mb-3">{GRADE_MEANING[b.grade]}</p>
+                    {examples.length ? (
+                      <p className="text-sm flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <span className="text-muted">For example</span>
+                        {examples.map((r) => (
+                          <Link
+                            key={r.domain}
+                            href={`/site/${r.domain}`}
+                            className="font-mono text-accent underline underline-offset-4"
+                          >
+                            {r.domain}
+                            <span className="text-muted no-underline"> {r.score.total}</span>
+                          </Link>
+                        ))}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted">No measured site currently scores in this band.</p>
+                    )}
+                    <p className="text-sm mt-3">
+                      <Link href={`/scores/${b.slug}`} className="text-accent underline underline-offset-4">
+                        All {n.toLocaleString()} sites scoring {b.label}
+                      </Link>
+                    </p>
+                  </div>
+                );
+              })}
+            />
+          ) : null}
+
           <p className="mt-4 text-sm">
             <Link href="/check" className="text-accent underline underline-offset-4">
               Find out where your site sits
+            </Link>
+            {' . '}
+            <Link href="/methodology" className="text-accent underline underline-offset-4">
+              How the score is built
             </Link>
           </p>
         </section>
@@ -407,6 +554,40 @@ export default function HomePage() {
                 All recorded changes
               </Link>
             </p>
+          </section>
+        </Reveal>
+      ) : null}
+
+      {/*
+        The findings as plain sentences, each with its numerator, denominator and date.
+        Rendered rather than hidden in JSON-LD for two reasons: a person skimming gets the
+        answers without decoding a chart, and an engine that ignores structured data still
+        finds a quotable, dated, attributed claim in the text.
+      */}
+      {findings.length ? (
+        <Reveal>
+          <section className="mb-16" aria-labelledby="answers">
+            <h2 id="answers" className="text-2xl font-bold mb-1">
+              The short answers
+            </h2>
+            <p className="text-sm text-muted mb-5 max-w-2xl">
+              Every figure on this page with its denominator and its measurement date attached, so
+              quoting one correctly takes no work. Free to reuse under {SITE.licence} with credit.
+            </p>
+            <dl className="space-y-4 max-w-3xl">
+              {findings.map((f) => (
+                <div key={f.id} className="border-l-2 border-rule pl-4">
+                  <dt className="font-medium">{f.question}</dt>
+                  <dd className="text-muted leading-relaxed mt-0.5">
+                    {f.answer}{' '}
+                    <data value={String(f.value)} className="sr-only">
+                      {f.value}
+                      {f.unit === 'PERCENT' ? '%' : ''}
+                    </data>
+                  </dd>
+                </div>
+              ))}
+            </dl>
           </section>
         </Reveal>
       ) : null}

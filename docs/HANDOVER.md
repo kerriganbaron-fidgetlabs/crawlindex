@@ -8,6 +8,11 @@
 > Section 9 below summarises what changed and the two bugs it fixed. Probe is now 3.0.0 and
 > the rubric 2.0.0, so **the first crawl after this deploy re-scores the whole corpus and
 > suppresses change detection for one night.** That is intended.
+>
+> **v2.1, 2026-08-10.** Section 10. Fixes a live bug that made most of the published change
+> feed fiction, adds a run-health gate, and rebuilds the score distribution, the badge and
+> `/check`. **`data/changes.jsonl` and `data/stats.json` were deliberately emptied**: every
+> figure measured before this point was provisional and is not worth preserving.
 
 ---
 
@@ -78,7 +83,9 @@ speculative passive products."* That was right before the question was asked.
 GitHub Actions, 02:30 UTC daily
   pnpm test     -> broken rubric publishes nothing
   pnpm seed     -> Mondays only, refreshes Tranco ranks and re-applies exclusions
-  pnpm crawl    -> ~40 min, writes data/
+  pnpm intake   -> adds submitted domains from GitHub issues
+  pnpm crawl    -> ~50 min, writes data/
+  pnpm verify:rescore -> archived records must rescore to their published values
   pnpm build    -> a dataset that cannot build is not published
   opens a PR and merges it
     -> Vercel deploys main
@@ -305,3 +312,111 @@ or is a crawler. For an index whose whole value is that its numbers are correct,
 worst available failure and it looks fine to whoever built it.
 
 Tests: 109, up from 48.
+
+---
+
+## 10. What v2.1 changed, 2026-08-10
+
+Prompted by a review of the live site. Three of the six workstreams were cosmetic asks; the
+first was not.
+
+### The rescoring bug, which invalidated most of the published change feed
+
+`worker/crawl.ts` rescored the previous night's record with `access: {}` in two places.
+`stableObs` strips `access` on write, and `scoreObservation` reads a missing token as
+*allowed*, so an archived record silently collected a free 38 of 100 points every time it was
+rescored.
+
+Measured against the committed dataset: **686 of 3,646 records, 18.8%, rescored differently.**
+`1drv.ms` inflated by 84, which is exactly the published `"Score fell 82 points to 7"`. On
+2026-08-10 the feed recorded **682 falls against 50 rises**. That asymmetry was the bug.
+
+Fixed by exporting `withAccess()` from `lib/dataset.ts` and routing both call sites through
+it. **Anything that rescores an archived observation must go through that function.**
+`worker/verify-rescore.ts` (`pnpm verify:rescore`) is now a CI step: it fails the run if any
+record does not rescore to its published value, and separately reports how far off the naive
+path *would* be, currently 686 records, as a standing measure of the trap.
+
+`tests/crawl-diff.test.ts` is new. It also pins the probe-version and vantage change
+suppression rules, which had existed untested despite the vantage one having already produced
+25 phantom changes per 150 domains in production.
+
+### The health gate, and quarantine
+
+Nothing compared one run against the last. A network refusing our crawler would collapse the
+reachability rate, drop hundreds of origins out of the denominator, and publish the surviving
+subset as tonight's headline with every process exiting zero.
+
+`lib/health.ts` compares reachability, measured population, published population, mean score
+and change volume against the last day that passed. A run failing any check is **quarantined**:
+observations are still written, but no change records are appended, `buildFrozenReport`
+excludes the day, and the site serves the last good day behind a banner. `latestStats()` now
+returns the last non-suspect day; `latestStatsRaw()` is the unfiltered accessor.
+
+The change-volume tripwire would have caught the rescoring bug on its first night.
+
+`upsertStats` refuses to replace a fuller same-day snapshot with a thinner one unless forced,
+so a `--limit 100` smoke test can no longer overwrite the night's real figures. `pnpm crawl
+--force` and the workflow's `force` input are the recovery path.
+
+### One population, one date
+
+The homepage mixed three: the stored snapshot, a live recompute over `domains.jsonl`, and
+`meta.json`. The policy-gap tile divided a live numerator by a snapshot denominator, so the
+percentage was a ratio of two different sets.
+
+`buildStats` moved to `lib/stats.ts` and now carries the facet counts too: gaps, the quadrant,
+postures, archetypes, the histogram and the probe-3 signal counts. **Every dated finding reads
+the snapshot; only views (leaderboards, cohort tables) recompute live.** There is a comment
+block at the top of `app/page.tsx` saying which is which, because the distinction is invisible
+and getting it wrong is what caused the defect.
+
+`pnpm restats` re-derives the snapshot from archived evidence with no network. Correct tool
+for a rubric change: re-crawling five thousand origins to recompute numbers we already hold
+would charge other people's servers for our decision. It dates the snapshot from the
+observations, never from the clock, so it is reproducible.
+
+**Signal counts are `null`, not `0`, when no probe has looked**, with `signalsObserved` as
+their denominator. Reporting 0% adoption for a question never asked is rule 2 with the sign
+flipped, and the first version of `buildStats` did exactly that.
+
+### The distribution, the badge, and /check
+
+- **`components/distribution.tsx`** replaces a 384px-wide `aria-hidden` histogram with counts,
+  a y-axis, a marked median, grade tinting, and ten focusable bands each revealing example
+  domains. Every panel is server-rendered; the client only chooses which is visible.
+  `/scores/[band]` gives each band a page. Grade boundaries are drawn at their real score
+  positions (40/60/75/90), not at bucket edges, because 75 falls mid-bucket.
+- **The badge** gets the site's own two-tone wordmark at a legible size, and three themes per
+  variant. Theme rides in the filename (`x.light.svg`), not a route segment, because a
+  `[theme]` segment beside `[slug]` builds fine and then 500s every route on the site.
+- **`/check`** is rate limited, refuses private and loopback targets, and budgets the probe
+  against `maxDuration` so a slow origin returns a partial result naming the skipped checks
+  rather than a bare 504. A skipped check is recorded in `signals.skippedChecks` and scored
+  unavailable, because charging a site for our own timeout is the same error as charging it
+  for a bot wall.
+
+### Costs, since they were asked
+
+`/check` and `/search` are the only Vercel functions. **The nightly crawl runs on GitHub
+Actions and costs nothing on Vercel.** At Fluid Compute rates, a check is about **$0.00007**
+warm and **$0.00016** cold: roughly **$1 per 10,000 checks**. Organic use is irrelevant.
+
+The exposure is abuse and it is memory-time rather than CPU, because the function spends its
+life waiting on I/O. A tarpitting target holds a slot for the full 60s at ~$0.00035; sustained
+10 req/s is ~$300/day.
+
+### Two things left as operator configuration
+
+1. **The rate limiter is per-instance.** `lib/guard.ts` says so in its own doc comment. It
+   raises the cost of casual abuse and does not stop a determined attacker, because serverless
+   functions scale horizontally and each instance keeps its own counters. **The real control is
+   a Vercel Firewall rate-limit rule on `/check`**, which sees every request. That is dashboard
+   configuration, not code, and it has not been applied.
+2. **`/check` still traces the whole `data/**` tree** (~6MB) into its bundle and parses it on
+   cold start, which is the dominant cost term. A build-time domain-and-score index would cut
+   that by roughly 100x. Deliberately not done in this pass: it touches the redirect, the
+   percentile and the histogram at once, and the money at stake is about a dollar per ten
+   thousand checks.
+
+Tests: 169.

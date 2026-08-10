@@ -163,6 +163,45 @@ export default function CoveragePage() {
       </Reveal>
 
       <Reveal>
+        <section className="mb-14 max-w-2xl scroll-mt-20" id="health" aria-labelledby="health-h">
+          <h2 id="health-h" className="text-2xl font-bold mb-4">
+            What happens when a crawl goes wrong
+          </h2>
+          <p className="text-muted leading-relaxed mb-4">
+            Every guard in this project used to protect against the crawl <em>failing</em>. None
+            protected against the crawl succeeding in a changed world. If a network starts refusing
+            our crawler, several hundred origins become unreachable, drop out of the denominator,
+            and the surviving subset gets published as the headline with tonight&apos;s date on it.
+            Every process exits zero and nothing says a word. Checking a vendor status page cannot
+            catch that, because the infrastructure is fine and the measurement environment is not.
+          </p>
+          <p className="text-muted leading-relaxed mb-4">
+            So each run is now compared against the last one that passed. Reachability, the size of
+            the measured population, the size of the published population, the mean score, and the
+            volume of change records all have to stay within a sane range of the previous night. A
+            run that fails any of those is <strong className="text-ink">quarantined</strong>.
+          </p>
+          <ul className="space-y-2 mb-4">
+            {[
+              ['The observations are still written', 'They are the evidence needed to work out what went wrong.'],
+              ['No change records are recorded', 'A change record is a claim about a named site, and a run we do not trust must not make claims about anybody.'],
+              ['The day is excluded from monthly reports', 'A sealed report is never rewritten, so this is the one consequence a later re-crawl could not undo.'],
+              ['The site keeps showing the last day that passed', 'With a banner naming the reasons, rather than quietly serving old numbers under a new date.'],
+            ].map(([term, def]) => (
+              <li key={term} className="border-l-2 border-rule pl-3">
+                <strong className="block text-sm">{term}</strong>
+                <span className="text-muted text-sm leading-relaxed">{def}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-muted leading-relaxed">
+            Recovery is a re-run. Nothing is deleted and nothing is hidden, and the quarantine
+            clears the moment a clean crawl replaces the day.
+          </p>
+        </section>
+      </Reveal>
+
+      <Reveal>
         <section className="mb-14 max-w-2xl" aria-labelledby="limits">
           <h2 id="limits" className="text-2xl font-bold mb-4">
             Limits that no amount of crawling fixes

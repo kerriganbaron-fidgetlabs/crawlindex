@@ -315,9 +315,27 @@ export function tldOf(domain: string): string {
   return last;
 }
 
-export async function probeDomain(domain: string): Promise<Observation> {
+/**
+ * How long a single probe may take before it stops asking for more.
+ *
+ * The nightly crawl has no ceiling worth worrying about, but `/check` runs in a serverless
+ * function with a hard `maxDuration`, and six requests with their own timeouts plus the
+ * per-host politeness gate can exceed it against a slow origin. Overrunning produces a bare
+ * platform 504 with no explanation, which is a worse answer than a partial measurement that
+ * says which checks it ran out of time for.
+ *
+ * Optional and unset by default, so the crawler behaves exactly as before.
+ */
+export async function probeDomain(
+  domain: string,
+  opts: { deadlineMs?: number } = {},
+): Promise<Observation> {
   const observedAt = new Date().toISOString();
   const vantage = currentVantage();
+  const startedAt = Date.now();
+  /** True once there is not enough time left to be worth another request. */
+  const outOfTime = (reserve = 1500) =>
+    opts.deadlineMs !== undefined && Date.now() - startedAt > opts.deadlineMs - reserve;
 
   const base = (obs: Partial<Observation>): Observation => ({
     domain,
@@ -485,18 +503,34 @@ export async function probeDomain(domain: string): Promise<Observation> {
   const refused = botRes.status === 403 || botRes.status === 429 || botRes.status === 503;
   const starved = home.status === 200 && botRes.status === 200 && botRes.bytes < home.bytes * 0.25;
 
-  // --- 4 + 5. agent surface files ------------------------------------------
-  const llmsRes = await politeFetch(`${origin}/llms.txt`, { timeoutMs: 8000 });
-  const llmsPresent = servedAsText(llmsRes);
-  const agentsRes = await politeFetch(`${origin}/agents.md`, { timeoutMs: 8000 });
-  const agentsPresent = servedAsText(agentsRes);
+  /**
+   * --- 4, 5 and 6. Agent surface files --------------------------------------
+   *
+   * These three are the ones a deadline drops, in reverse order of value. Skipping is not
+   * the same as finding nothing: a skipped check is recorded as unobserved so the score
+   * renormalises rather than charging the site for our timeout, which is design rule 3
+   * applied to our own impatience.
+   */
+  const skipped: string[] = [];
 
-  // --- 6. the A2A agent card -----------------------------------------------
+  const llmsRes = outOfTime()
+    ? null
+    : await politeFetch(`${origin}/llms.txt`, { timeoutMs: 8000 });
+  if (!llmsRes) skipped.push('/llms.txt');
+  const llmsPresent = llmsRes ? servedAsText(llmsRes) : false;
+
+  const agentsRes = outOfTime() ? null : await politeFetch(`${origin}/agents.md`, { timeoutMs: 8000 });
+  if (!agentsRes) skipped.push('/agents.md');
+  const agentsPresent = agentsRes ? servedAsText(agentsRes) : false;
+
   // The only request added in probe 3. Adoption today is close to zero, which is the
   // reason to measure it: being able to state the agent-card adoption rate across the top
   // five thousand domains is a number nobody else has, and the curve is the story.
-  const cardRes = await politeFetch(`${origin}/.well-known/agent-card.json`, { timeoutMs: 8000 });
-  const cardPresent = servedAsJson(cardRes);
+  const cardRes = outOfTime()
+    ? null
+    : await politeFetch(`${origin}/.well-known/agent-card.json`, { timeoutMs: 8000 });
+  if (!cardRes) skipped.push('/.well-known/agent-card.json');
+  const cardPresent = cardRes ? servedAsJson(cardRes) : false;
 
   // --- derive ---------------------------------------------------------------
   const landmarks = LANDMARK_TAGS.filter((t) => new RegExp(`<${t}[\\s>]`, 'i').test(html));
@@ -510,7 +544,7 @@ export async function probeDomain(domain: string): Promise<Observation> {
     licenseLink: /<link[^>]+rel=["'][^"']*\blicense\b[^"']*["']/i.test(html),
     crawlerPrice: (home.headers['crawler-price'] ?? botRes.headers['crawler-price'] ?? '').slice(0, 80) || null,
     agentCard: cardPresent,
-    agentCardBytes: cardPresent ? cardRes.bytes : 0,
+    agentCardBytes: cardPresent && cardRes ? cardRes.bytes : 0,
 
     // A dateline can be declared three ways and any of them is machine-readable.
     datePublished:
@@ -530,6 +564,7 @@ export async function probeDomain(domain: string): Promise<Observation> {
     listCount: count(html, /<(ul|ol)[\s>]/gi),
     tableCount: count(html, /<table[\s>]/gi),
     textRatio: html.length ? Number((text.length / html.length).toFixed(4)) : 0,
+    ...(skipped.length ? { skippedChecks: skipped } : {}),
   };
 
   return base({
@@ -549,10 +584,11 @@ export async function probeDomain(domain: string): Promise<Observation> {
       botBytes: botRes.bytes,
       detected: refused || starved,
     },
-    llmsTxt: llmsPresent
-      ? { present: true, bytes: llmsRes.bytes, ...validateLlmsTxt(llmsRes.body) }
-      : { present: false, specValid: false, issues: [], bytes: 0, linkCount: 0 },
-    agentsMd: { present: agentsPresent, bytes: agentsPresent ? agentsRes.bytes : 0 },
+    llmsTxt:
+      llmsPresent && llmsRes
+        ? { present: true, bytes: llmsRes.bytes, ...validateLlmsTxt(llmsRes.body) }
+        : { present: false, specValid: false, issues: [], bytes: 0, linkCount: 0 },
+    agentsMd: { present: agentsPresent, bytes: agentsPresent && agentsRes ? agentsRes.bytes : 0 },
     structured: {
       jsonLdTypes: [...new Set(jsonLdTypes)],
       hasOrganization: jsonLdTypes.some((t) =>

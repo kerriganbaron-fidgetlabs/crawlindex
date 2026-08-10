@@ -48,6 +48,10 @@ export default function BadgePage() {
       a: 'It is a static SVG of about one kilobyte served from a CDN with a long cache, marked lazy-loading in the snippet. It carries no script, no tracking and no cookie.',
     },
     {
+      q: 'Will it look right on my site?',
+      a: 'Pick the theme. An SVG cannot detect the background it was pasted onto, so there are three files: light, dark, and auto. Auto follows the reader’s own light or dark setting, which means a dark-mode visitor to a light site sees the dark mark. If that matters, pin light or dark instead. The builder below previews the mark on a white ground and a black ground side by side so you can see the outcome before copying.',
+    },
+    {
       q: 'Why is there no mark for lower scores?',
       a: 'Because nobody would embed one, so offering it would be a pretence. Below grade B the useful thing is not a graphic, it is the prioritised list of what to change, which is on the site page and is usually shorter than people expect.',
     },
@@ -193,8 +197,9 @@ export default function BadgePage() {
             Take it
           </h2>
           <p className="text-sm text-muted mb-5 max-w-2xl">
-            Three shapes, three syntaxes, one static file each. Enter your domain to get the exact
-            snippet.
+            Three shapes, three themes, three syntaxes. Every combination is a static file that
+            already exists. Enter your domain to get the exact snippet, and check it against both a
+            light and a dark ground before you paste it.
           </p>
           <BadgeEmbed origin={SITE.url} defaultDomain={example} />
         </section>

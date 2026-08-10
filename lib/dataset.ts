@@ -31,6 +31,7 @@ import {
   type PolicyGap,
   type PolicyPosture,
 } from './facets';
+import { lastTrustworthy } from './health';
 import { scoreObservation } from './score';
 import { tldOf } from './probe';
 import type { AccessMap, Observation, Score } from './types';
@@ -68,6 +69,30 @@ export type DailyStats = {
   totalDomains: number;
   observed: number;
   meanScore: number | null;
+
+  /**
+   * Run shape. Added because a `--limit 200` slice was previously indistinguishable from a
+   * full pass in `stats.json`: the snapshot recorded a corpus-sized `totalDomains` and an
+   * `observed` count that was 98% yesterday's observations, dated today.
+   *
+   * Optional because snapshots written before this existed do not have them, and inventing
+   * a value for a question that was never asked is the failure mode this project keeps
+   * legislating against.
+   */
+  attempted?: number;
+  succeeded?: number;
+  /** Domains actually probed on this run, as opposed to carried forward unchanged. */
+  crawled?: number;
+  carried?: number;
+  /** True when the run covered only a slice of the corpus. */
+  partial?: boolean;
+
+  /**
+   * Quarantine. A suspect day is published as evidence but kept out of the record: no change
+   * records, excluded from trends, and never sealed into a monthly report.
+   */
+  suspect?: boolean;
+  suspectReasons?: string[];
   blockingAnyTier1: number;
   blockingAllTier1: number;
   llmsTxt: number;
@@ -77,6 +102,39 @@ export type DailyStats = {
   perBot: Record<string, number>;
   perPlatform?: Record<string, { total: number; blocking: number }>;
   perNetwork?: Record<string, { total: number; blocking: number }>;
+
+  /**
+   * Facets, snapshotted.
+   *
+   * These were computed live at render time while their denominators came from this
+   * snapshot, so the homepage divided one population by a different one. Storing them
+   * alongside makes every headline figure a single consistent reading, and as a side effect
+   * turns each into a historical series the monthly sparklines can use.
+   *
+   * Optional for the same reason as the run-shape fields: older snapshots never measured
+   * them and must not be given an invented zero.
+   */
+  policyGaps?: number;
+  /** Stated policy against enforced behaviour, the four cells of the homepage quadrant. */
+  quadrant?: { gap: number; openHonest: number; blockedHonest: number; declaredOnly: number };
+  perPosture?: Record<string, number>;
+  perArchetype?: Record<string, number>;
+  /** Score distribution in ten-point buckets, index 0 is 0-9. */
+  histogram?: number[];
+  /**
+   * Adoption counts for the signals added in probe 3.
+   *
+   * `signalsObserved` is the denominator and is the point of the group: it is how many
+   * records were taken by a probe that looked for these at all. Null counts mean nobody has
+   * asked yet, which is not the same fact as nobody publishing them, and reporting the two
+   * identically is rule 2 with the sign flipped.
+   */
+  signalsObserved?: number;
+  declaredLicence?: number | null;
+  contentSignal?: number | null;
+  agentCard?: number | null;
+  dateline?: number | null;
+  authorship?: number | null;
 };
 
 export type ChangeRecord = {
@@ -113,8 +171,19 @@ function readJson<T>(file: string, fallback: T): T {
   }
 }
 
-/** Rebuild the per-token allow map from the blocked lists. Same information, less disk. */
-function withAccess(obs: StoredRecord['obs']): Observation {
+/**
+ * Rebuild the per-token allow map from the blocked lists. Same information, less disk.
+ *
+ * **Exported because the crawler needs it and did not have it.** `stableObs` strips `access`
+ * before writing, so any archived record read back through `readRecords()` has no access map
+ * at all. `scoreObservation` tests `obs.access[token] !== false`, so an empty map reads as
+ * "every crawler allowed" and silently hands the record a free 38 of 100 points.
+ *
+ * `worker/crawl.ts` did exactly that in two places, which inflated the previous score in
+ * change detection and produced 682 fictional "score fell" records against 50 rises in a
+ * single night. Anything that rescores an archived observation must come through here.
+ */
+export function withAccess(obs: StoredRecord['obs']): Observation {
   const blocked = new Set([...(obs.tier1Blocked ?? []), ...(obs.tier2Blocked ?? [])]);
   const access: AccessMap = {};
   for (const a of AGENTS) access[a.token] = !blocked.has(a.token);
@@ -201,9 +270,29 @@ export function resetDatasetCache(): void {
 export const allDomains = (): DomainRow[] => load().rows;
 export const getDomain = (d: string): DomainRow | null => load().byDomain.get(d) ?? null;
 export const allStats = (): DailyStats[] => load().stats;
-export const latestStats = (): DailyStats | null => {
+
+/**
+ * The last day fit to quote.
+ *
+ * Deliberately not "the last entry". A quarantined run still writes its snapshot, because
+ * the evidence is what you need to diagnose it, but the site must not publish figures the
+ * crawler itself flagged as implausible. A suspect night therefore shows the previous day's
+ * numbers with a banner rather than fresh numbers nobody trusts.
+ *
+ * `latestStatsRaw()` is the unfiltered accessor, for the few places that need to know a
+ * quarantine happened at all.
+ */
+export const latestStats = (): DailyStats | null => lastTrustworthy(load().stats);
+
+export const latestStatsRaw = (): DailyStats | null => {
   const s = load().stats;
   return s.length ? s[s.length - 1] : null;
+};
+
+/** The current quarantine, if the most recent run was flagged. Null when all is well. */
+export const activeQuarantine = (): DailyStats | null => {
+  const latest = latestStatsRaw();
+  return latest?.suspect ? latest : null;
 };
 export const allChanges = (): ChangeRecord[] => load().changes;
 export const changesFor = (d: string): ChangeRecord[] => load().changes.filter((c) => c.domain === d);

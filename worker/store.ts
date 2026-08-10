@@ -152,11 +152,38 @@ export function appendChanges(fresh: ChangeRecord[]) {
 
 export const readStats = (): DailyStats[] => JSON.parse(readTextOr('stats.json', '[]')) as DailyStats[];
 
-export function upsertStats(entry: DailyStats) {
-  const all = readStats().filter((s) => s.day !== entry.day);
-  all.push(entry);
-  all.sort((a, b) => a.day.localeCompare(b.day));
-  writeAtomic('stats.json', JSON.stringify(all, null, 1) + '\n');
+/**
+ * Write a day's snapshot.
+ *
+ * **Refuses to replace a fuller snapshot with a thinner one for the same day**, unless
+ * forced. Any second run on the same UTC date used to overwrite the first unconditionally,
+ * so a `pnpm crawl --limit 100` smoke test, a manual re-run, or a `workflow_dispatch` with a
+ * small limit silently replaced the night's real figures with a 100-domain slice. The only
+ * recovery was git history, and nothing said it had happened.
+ *
+ * A quarantined day is always allowed to be replaced: getting a clean measurement over a
+ * suspect one is the point of the re-run.
+ */
+export function upsertStats(entry: DailyStats, opts: { force?: boolean } = {}) {
+  const all = readStats();
+  const existing = all.find((s) => s.day === entry.day);
+
+  if (existing && !opts.force && !existing.suspect) {
+    const wasFuller = (existing.observed ?? 0) > entry.observed;
+    if (wasFuller) {
+      console.error(
+        `Refusing to overwrite the ${entry.day} snapshot: the stored one measured ` +
+          `${existing.observed.toLocaleString()} domains and this run measured ${entry.observed.toLocaleString()}. ` +
+          `Pass --force if replacing it is genuinely what you want.`,
+      );
+      return;
+    }
+  }
+
+  const next = all.filter((s) => s.day !== entry.day);
+  next.push(entry);
+  next.sort((a, b) => a.day.localeCompare(b.day));
+  writeAtomic('stats.json', JSON.stringify(next, null, 1) + '\n');
 }
 
 // --- sealed monthly reports -------------------------------------------------

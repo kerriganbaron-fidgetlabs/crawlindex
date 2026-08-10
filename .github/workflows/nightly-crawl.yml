@@ -34,6 +34,11 @@ on:
         type: boolean
         required: false
         default: false
+      force:
+        description: 'Bypass the health gate and replace today''s snapshot. Use after a quarantine, or when a rubric change is known to move every score.'
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: nightly-crawl
@@ -92,7 +97,13 @@ jobs:
       - name: Crawl
         env:
           CRAWLINDEX_VANTAGE: gha-ubuntu
-        run: pnpm crawl --limit ${{ github.event.inputs.limit || 100000 }} --concurrency 20
+        run: pnpm crawl --limit ${{ github.event.inputs.limit || 100000 }} --concurrency 20 ${{ github.event.inputs.force == 'true' && '--force' || '' }}
+
+      # Cheap, and it fails the run before anything is published. Proves that every archived
+      # record still rescores to the number it was published with, which is the invariant the
+      # access-map bug broke while every other check stayed green.
+      - name: Verify archived records still rescore correctly
+        run: pnpm verify:rescore
 
       - name: Verify the dataset builds before publishing it
         run: pnpm build
@@ -135,5 +146,29 @@ jobs:
 
       - name: Say so loudly if it failed
         if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          set -euo pipefail
           echo "The nightly crawl failed. The previously published dataset is untouched and the site is still serving it." >> "$GITHUB_STEP_SUMMARY"
+
+          # A line in the step summary is a notification nobody receives. An issue is one
+          # somebody actually sees, and it costs no secret: GITHUB_TOKEN already has
+          # issues:write from the submission intake.
+          #
+          # Reuse a single open issue rather than filing one a night, so a week of failures
+          # is one thread instead of seven duplicates.
+          EXISTING=$(gh issue list --label crawl-failure --state open --limit 1 --json number --jq '.[0].number // empty')
+          BODY="The nightly crawl failed on $(date -u +%Y-%m-%d).
+
+          The previously published dataset is untouched and the site is still serving it, so
+          this is a stale-data problem rather than a broken-site problem.
+
+          Run: ${RUN_URL}"
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "Nightly crawl failing" --label crawl-failure --body "$BODY"
+          fi
