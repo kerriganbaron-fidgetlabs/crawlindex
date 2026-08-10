@@ -49,22 +49,47 @@ export const STUB_MAX_BYTES = 5_000;
 export const STUB_MAX_TEXT = 100;
 
 /**
- * Does this archived observation describe a stub rather than a page?
+ * A thin body is only *suspicious*. Joined with an outright refusal of our AI user agent
+ * it becomes conclusive, so the text ceiling can be looser in that case.
+ */
+export const WALLED_MAX_TEXT = 400;
+const REFUSAL_STATUSES = new Set([401, 403, 406, 429, 503]);
+
+/**
+ * Does this archived observation describe something other than the site's own page?
  *
- * Derived entirely from stored evidence, which is deliberate. Applying it at score time
- * as well as at probe time means the fix reaches the four thousand records already on
- * disk instead of waiting for a re-crawl, and it puts design rule 3 in the one file that
- * is responsible for enforcing it.
+ * Derived entirely from stored evidence, which is deliberate. Applying it at score time as
+ * well as at probe time means the fix reaches the records already on disk instead of
+ * waiting for a re-crawl, and it puts design rule 3 in the one file responsible for it.
  *
- * `browserBytes` is the size of the control response. Zero means the comparison never
- * ran, which the early-return paths already handle by other means.
+ * Two arms, and the second exists because the first was tuned on a single day of data and
+ * missed the very case it was written for. Amazon's AWS WAF interstitial came back at
+ * 3,781 bytes with 151 characters the next night, just outside a 100-character ceiling, and
+ * twenty Amazon domains reappeared at the bottom of the leaderboard.
+ *
+ *  1. **Tiny and empty.** Under 5,000 bytes and under 100 characters of text. No homepage
+ *     in the top five thousand is two sentences long inside 5KB.
+ *  2. **Thin and refused.** Under 5,000 bytes, under 400 characters, *and* the request
+ *     carrying an AI user agent was refused outright. A server that sends almost nothing
+ *     and slams the door on the bot was walling us, not serving us.
+ *
+ * The refusal condition in arm 2 is doing real work, and the temptation to drop it and
+ * just raise the ceiling has to be resisted. lua.org's genuine homepage is 2,036 bytes
+ * with 129 characters and answers the bot with a 200. Raising the ceiling alone would
+ * publish "we were served a stub" about a real, deliberately minimal page, which is its
+ * own kind of false claim. Rule 3 protects a site from a wrong score; it does not licence
+ * a wrong explanation.
+ *
+ * `browserBytes` is the size of the control response. Zero means the comparison never ran,
+ * which the early-return paths already handle by other means.
  */
 export function bodyIsStub(obs: Observation): boolean {
-  return (
-    obs.cloaking.browserBytes > 0 &&
-    obs.cloaking.browserBytes < STUB_MAX_BYTES &&
-    obs.content.ssrTextLength < STUB_MAX_TEXT
-  );
+  const bytes = obs.cloaking.browserBytes;
+  const text = obs.content.ssrTextLength;
+  if (bytes <= 0 || bytes >= STUB_MAX_BYTES) return false;
+
+  if (text < STUB_MAX_TEXT) return true;
+  return text < WALLED_MAX_TEXT && REFUSAL_STATUSES.has(obs.cloaking.botStatus);
 }
 
 function grade(total: number): 'A' | 'B' | 'C' | 'D' | 'F' {
@@ -126,9 +151,11 @@ export function scoreObservation(obs: Observation): Score {
 
   // One phrase for why the body cannot be read, so fourteen score lines cannot drift into
   // telling a reader two different stories about the same request.
-  const wall = stub
-    ? `the homepage answered with ${obs.cloaking.browserBytes.toLocaleString()} bytes and no extractable text, which is a stub served to our crawler rather than the site`
-    : 'our control request was challenged by a bot wall';
+  const wall = !stub
+    ? 'our control request was challenged by a bot wall'
+    : obs.content.ssrTextLength >= STUB_MAX_TEXT
+      ? `the homepage answered with only ${obs.cloaking.browserBytes.toLocaleString()} bytes and ${obs.content.ssrTextLength} characters of text, and then refused a request carrying an AI user agent with HTTP ${obs.cloaking.botStatus}, which together describe a wall rather than a page`
+      : `the homepage answered with ${obs.cloaking.browserBytes.toLocaleString()} bytes and no extractable text, which is a stub served to our crawler rather than the site`;
 
   const lines: ScoreLine[] = [];
 

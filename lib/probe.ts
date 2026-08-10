@@ -181,6 +181,18 @@ const CHALLENGE_SIGNATURES: Array<[RegExp, string]> = [
   [/are you a robot|unusual traffic from your/i, 'Bot verification prompt'],
   [/<title>[^<]*(security check|bot verification)[^<]*<\/title>/i, 'Security check page'],
   [/elements\.namedItem\(\s*["']solution["']\s*\)/i, 'JavaScript proof-of-work challenge'],
+
+  // Added after the first version of the stub rule caught Amazon by size alone. All four
+  // are named vendor products, verified against live responses, and being able to say
+  // *which* wall answered is worth far more than a generic "something thin came back".
+  [/window\.(awsWafCookieDomainList|gokuProps)\b/i, 'AWS WAF challenge'],
+  [/api-services-support@amazon\.com/i, 'Amazon automated-access interstitial'],
+  [/<title>[^<]*client challenge[^<]*<\/title>|\/_fs-ch-/i, 'Fastly bot challenge'],
+  [
+    /<title>[^<]*request rejected[^<]*<\/title>|the requested url was rejected\. please consult/i,
+    'F5 BIG-IP block page',
+  ],
+  [/<title>[^<]*server busy[^<]*<\/title>/i, 'Server busy interstitial'],
 ];
 
 /**

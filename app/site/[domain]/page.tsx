@@ -13,6 +13,7 @@ import {
 import { contradictsStatedPolicy, describeCloaking } from '../../../lib/findings';
 import { networkLabel, platformLabel } from '../../../lib/fingerprints';
 import { normaliseDomain } from '../../../lib/http';
+import { bodyIsStub } from '../../../lib/score';
 import { absoluteUrl, SITE } from '../../../lib/site';
 import { Attribution, PageHeader, PageMeta, ScoreChip } from '../../../components/ui';
 import { BandBars, Histogram } from '../../../components/charts';
@@ -261,16 +262,26 @@ export default async function DomainPage({ params }: Props) {
             was excluded rather than scored zero.
           </p>
         </div>
-      ) : obs.control.kind === 'unreadable' ? (
+      ) : obs.control.kind === 'unreadable' || bodyIsStub(obs) ? (
+        // Two ways to land here. A probe-3 crawl records `unreadable` with its own reason
+        // string. An older archived record has `kind: 'none'`, and the same conclusion is
+        // re-derived from stored evidence at score time, so the explanation has to be
+        // reconstructed here rather than read off the record.
         <div className="border-l-4 border-warn bg-raised p-4 mb-10">
           <h2 className="font-semibold mb-1">
-            <Explain id="stub">We were served a stub, not the site</Explain>
+            <Explain id="stub">We were served a wall, not the site</Explain>
           </h2>
           <p className="text-sm">
-            {obs.control.reason} Everything that would be read from that response describes an
-            anti-automation placeholder rather than anything {domain} publishes, so those checks
-            were excluded and the score renormalised over what remained. Charging them to the site
-            would be a claim about a page it never served us.
+            {obs.control.reason ??
+              `The homepage answered with ${obs.cloaking.browserBytes.toLocaleString()} bytes and ${obs.content.ssrTextLength} characters of text${
+                obs.cloaking.botStatus >= 400
+                  ? `, then refused a request carrying an AI user agent with HTTP ${obs.cloaking.botStatus}`
+                  : ''
+              }.`}{' '}
+            Everything that would be read from that response describes an anti-automation
+            placeholder rather than anything {domain} publishes, so those checks were excluded and
+            the score renormalised over what remained. Charging them to the site would be a claim
+            about a page it never served us.
           </p>
         </div>
       ) : obs.control.challenged ? (
