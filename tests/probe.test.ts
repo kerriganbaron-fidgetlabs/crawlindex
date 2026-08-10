@@ -63,6 +63,36 @@ describe('challenge detection', () => {
     expect(detectChallenge(res({ status: 404, bytes: 400, body: 'not found' }), 9).challenged).toBe(false);
   });
 
+  /**
+   * Verified against live responses on 2026-08-10. Naming the wall is worth more than a
+   * generic "something thin came back", and these four cover every case the size rule was
+   * catching by accident.
+   */
+  it('names AWS WAF, which is what Amazon actually answers with', () => {
+    const c = detectChallenge(
+      res({ status: 202, bytes: 2007, body: '<html><head><title></title><script>window.awsWafCookieDomainList = []; window.gokuProps = {"key":"x"};</script></head></html>' }),
+      4,
+    );
+    expect(c.kind).toBe('bot-challenge');
+    expect(c.reason).toContain('AWS WAF');
+  });
+
+  it('names the Fastly challenge', () => {
+    const c = detectChallenge(
+      res({ bytes: 3036, body: '<html><head><link href="/_fs-ch-1T1wm/assets/styles.css" rel="stylesheet"/><title>Client Challenge</title></head></html>' }),
+      226,
+    );
+    expect(c.reason).toContain('Fastly');
+  });
+
+  it('names the F5 block page', () => {
+    const c = detectChallenge(
+      res({ bytes: 243, body: '<html><head><title>Request Rejected</title></head><body>The requested URL was rejected. Please consult with your administrator.</body></html>' }),
+      118,
+    );
+    expect(c.reason).toContain('F5');
+  });
+
   it('prefers the vendor name over the generic stub rule', () => {
     const c = detectChallenge(
       res({ status: 200, bytes: 1200, body: '<title>Just a moment...</title>' }),

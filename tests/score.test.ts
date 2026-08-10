@@ -260,6 +260,45 @@ describe('a stub response is not evidence about the site', () => {
     expect(scoreObservation(spa).lines.find((l) => l.id === 'ssr-text')!.available).toBe(true);
   });
 
+  /**
+   * The first version of this rule was tuned on one day of data and missed the exact case
+   * it was written for. The next night Amazon's AWS WAF interstitial came back at 3,781
+   * bytes with 151 characters, cleared a 100-character ceiling, and twenty Amazon domains
+   * reappeared at the bottom of the leaderboard.
+   */
+  it('catches a thin body that also refused the AI user agent', () => {
+    const walled = observation({
+      cloaking: { tested: true, browserBytes: 3781, botStatus: 503, botBytes: 1200, detected: true },
+      content: { ...observation().content, ssrTextLength: 151 },
+    });
+    expect(bodyIsStub(walled)).toBe(true);
+  });
+
+  /**
+   * The guard that stops the fix becoming its own false claim. lua.org's real homepage is
+   * 2,036 bytes with 129 characters and answers a bot with 200. Raising the text ceiling
+   * without requiring a refusal would publish "we were served a stub" about a page that is
+   * simply, deliberately, very small.
+   */
+  it('does not accuse a genuinely minimal page that served the bot normally', () => {
+    const minimal = observation({
+      cloaking: { tested: true, browserBytes: 2036, botStatus: 200, botBytes: 2036, detected: false },
+      content: { ...observation().content, ssrTextLength: 129 },
+    });
+    expect(bodyIsStub(minimal)).toBe(false);
+    expect(scoreObservation(minimal).lines.find((l) => l.id === 'ssr-text')!.available).toBe(true);
+  });
+
+  it('does not fire on a thin body refused only because it is large', () => {
+    // Over the byte ceiling: a full page that happens to refuse bots is cloaking, which is
+    // a finding about the site, not a failure to measure it.
+    const big = observation({
+      cloaking: { tested: true, browserBytes: 900_000, botStatus: 503, botBytes: 0, detected: true },
+      content: { ...observation().content, ssrTextLength: 300 },
+    });
+    expect(bodyIsStub(big)).toBe(false);
+  });
+
   it('does not fire when the cloaking comparison never ran', () => {
     const untested = observation({
       cloaking: { tested: false, browserBytes: 0, botStatus: 0, botBytes: 0, detected: false },
