@@ -19,6 +19,12 @@ export type CorpusEntry = {
   firstSeen: string;
   /** Pinned domains stay in the corpus whatever the ranking says. */
   pinned?: boolean;
+  /**
+   * How the domain got here. `submitted` entries came in through a GitHub issue and are
+   * always pinned, because the Monday reseed rebuilds from Tranco and a submitted domain
+   * is usually not in the ranking.
+   */
+  source?: 'tranco' | 'pinned' | 'submitted';
   consecutiveFailures?: number;
   excluded?: string | null;
 };
@@ -119,6 +125,7 @@ function stableObs(o: Observation) {
     agentsMd: o.agentsMd,
     structured: o.structured,
     content: o.content,
+    signals: o.signals,
     stack: o.stack,
     security: o.security,
   };
@@ -150,6 +157,32 @@ export function upsertStats(entry: DailyStats) {
   all.push(entry);
   all.sort((a, b) => a.day.localeCompare(b.day));
   writeAtomic('stats.json', JSON.stringify(all, null, 1) + '\n');
+}
+
+// --- sealed monthly reports -------------------------------------------------
+
+/**
+ * Write a month's report and never touch it again.
+ *
+ * The refusal to overwrite is the whole feature. A monthly report that can be regenerated
+ * is a template over today's data, which is what this replaced: July's figures used to
+ * change in September because the cross-tabs were read live and the change list came from
+ * a rolling window that had scrolled past them.
+ *
+ * Returns false when a seal already exists, which is the normal case on every crawl after
+ * the first one of a new month.
+ */
+export function writeFrozenReport(month: string, contents: unknown): boolean {
+  const dir = join(DATA_DIR, 'reports');
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+  const target = join(dir, `${month}.json`);
+  if (existsSync(target)) return false;
+
+  const tmp = `${target}.tmp`;
+  writeFileSync(tmp, JSON.stringify(contents, null, 1) + '\n', 'utf8');
+  renameSync(tmp, target);
+  return true;
 }
 
 // --- meta ------------------------------------------------------------------

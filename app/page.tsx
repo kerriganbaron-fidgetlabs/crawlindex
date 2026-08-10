@@ -1,118 +1,260 @@
 import Link from 'next/link';
-import { AGENTS, agentSlug } from '../lib/agents';
-import { allChanges, latestStats, leaderboard, networkCohorts, platformCohorts } from '../lib/dataset';
+import { AGENTS, agentSlug, TIER1 } from '../lib/agents';
+import {
+  allChanges,
+  countPolicyGaps,
+  facetCounts,
+  latestStats,
+  leaderboard,
+  networkCohorts,
+  observedRows,
+  platformCohorts,
+  scoreHistogram,
+} from '../lib/dataset';
+import { groupByEntity } from '../lib/entities';
+import { POSTURE_LABEL } from '../lib/facets';
 import { SITE } from '../lib/site';
-import { Attribution, CohortTable, DomainTable, StatTile } from '../components/ui';
+import { Attribution, CohortTable, EntityTable, PageMeta, StatTile } from '../components/ui';
+import { Histogram, PolicyQuadrant, RankedBars, UnitChart } from '../components/charts';
+import { CountUp, GrowBar, Reveal } from '../components/motion';
+import { Explain } from '../components/explain';
 
-const pct = (n: number, d: number) => (d === 0 ? '0%' : `${Math.round((n / d) * 100)}%`);
+const pct = (n: number, d: number) => (d === 0 ? 0 : (n / d) * 100);
+const pctStr = (n: number, d: number) => `${Math.round(pct(n, d))}%`;
 
 export default function HomePage() {
   const stats = latestStats();
-  const worst = leaderboard('bottom', 10);
-  const changes = allChanges().slice(0, 8);
-  const networks = networkCohorts().slice(0, 6);
-  const platforms = platformCohorts().slice(0, 6);
   const observed = stats?.observed ?? 0;
+  const rows = observedRows();
+
+  const changes = allChanges().slice(0, 6);
+  const networks = networkCohorts().slice(0, 8);
+  const platforms = platformCohorts().slice(0, 6);
+  const worst = groupByEntity(leaderboard('bottom', 200)).slice(0, 10);
+
+  // The quadrant. Both halves of this have been measured since the first crawl and nobody
+  // had crossed them, which is why it leads the page.
+  const gaps = countPolicyGaps();
+  const quadrant = {
+    gap: gaps,
+    openHonest: rows.filter((r) => r.obs.access['GPTBot'] !== false && !r.gap.gap).length,
+    blockedHonest: rows.filter(
+      (r) => r.obs.access['GPTBot'] === false && r.obs.cloaking.botStatus >= 400,
+    ).length,
+    declaredOnly: rows.filter(
+      (r) =>
+        r.obs.access['GPTBot'] === false &&
+        r.obs.cloaking.tested &&
+        r.obs.cloaking.botStatus > 0 &&
+        r.obs.cloaking.botStatus < 400,
+    ).length,
+  };
+
+  const postures = facetCounts((r) => r.posture);
+  const deliberate = postures.find((p) => p.id === 'deliberate')?.count ?? 0;
+  const inherited = postures.find((p) => p.id === 'inherited')?.count ?? 0;
 
   const botRows = AGENTS.map((a) => ({ ...a, blocked: stats?.perBot?.[a.token] ?? 0 })).sort(
     (a, b) => b.blocked - a.blocked,
   );
 
-  // The single most quotable finding the dataset produces, computed rather than asserted.
   const topNetwork = [...networks].sort((a, b) => b.blockingRate - a.blockingRate)[0];
   const lowNetwork = [...networks].sort((a, b) => a.blockingRate - b.blockingRate)[0];
 
+  const blockingShare = pct(stats?.blockingAnyTier1 ?? 0, observed);
+
   return (
     <>
-      <section className="mb-14">
-        <p className="font-mono text-xs uppercase tracking-widest text-accent mb-3">
-          Updated nightly. Method published in full. Dataset open.
+      <section className="mb-16">
+        <p className="font-mono text-xs uppercase tracking-widest text-accent mb-3 flex items-center gap-2">
+          <span aria-hidden="true" className="live-dot inline-block w-1.5 h-1.5 rounded-full bg-accent" />
+          Recrawled every night. Method published in full. Dataset open.
         </p>
-        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-[1.1] max-w-3xl">
-          The open index of how the web treats AI agents.
+        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-[1.05] max-w-3xl text-balance">
+          Most of the web never decided how AI may read it.
         </h1>
         <p className="mt-5 text-lg text-muted max-w-2xl leading-relaxed">
-          We measure the most-visited sites on the web and publish what we find. Which AI crawlers
-          each site blocks. Whether it publishes llms.txt or agents.md. Whether it quietly serves
-          crawlers something different from what it serves you. And which platforms and CDNs are
-          making that decision on the operator's behalf.
+          Someone decided anyway. We measure the most-visited sites on the internet every night and
+          publish exactly what we find: which AI crawlers each one blocks, what it publishes for
+          agents to read, whether it serves a crawler something different from what it serves you,
+          and who actually made that call.
         </p>
-        <p className="mt-6 flex flex-wrap gap-3">
-          <Link
-            href="/leaderboard"
-            className="inline-block border-2 border-accent text-accent font-medium rounded px-5 py-2 hover:bg-accent-soft"
-          >
-            See the index
-          </Link>
-          <Link
-            href="/check"
-            className="inline-block border-2 border-rule font-medium rounded px-5 py-2 hover:border-accent hover:text-accent"
-          >
-            Check any domain
-          </Link>
-        </p>
+
+        <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_auto] lg:items-end">
+          <p className="flex flex-wrap gap-3">
+            <Link
+              href="/findings"
+              className="inline-block border-2 border-accent bg-accent text-paper font-medium rounded px-5 py-2.5 hover:opacity-90"
+            >
+              What we found
+            </Link>
+            <Link
+              href="/check"
+              className="inline-block border-2 border-rule font-medium rounded px-5 py-2.5 hover:border-accent hover:text-accent"
+            >
+              Measure your site
+            </Link>
+            <Link
+              href="/leaderboard"
+              className="inline-block font-medium rounded px-5 py-2.5 text-muted hover:text-accent link-draw"
+            >
+              Browse the index
+            </Link>
+          </p>
+
+          {observed ? (
+            <UnitChart
+              sweep
+              percent={blockingShare}
+              label={`${Math.round(blockingShare)} in every 100 measured sites block at least one crawler that answers questions today`}
+              sub={`${(stats?.blockingAnyTier1 ?? 0).toLocaleString()} of ${observed.toLocaleString()} domains, measured ${stats?.day}`}
+            />
+          ) : null}
+        </div>
       </section>
 
       {stats ? (
-        <section className="mb-14" aria-labelledby="findings">
+        <section className="mb-16" aria-labelledby="findings">
           <h2 id="findings" className="text-2xl font-bold mb-1">
             What the last crawl found
           </h2>
           <p className="text-sm text-muted mb-5">
-            {observed.toLocaleString()} domains measured on {stats.day}. Sites we could not reach
-            are excluded rather than counted as failures.
+            {observed.toLocaleString()} domains measured on {stats.day}. Sites we could not observe
+            are excluded rather than counted as failures, which is why these denominators are
+            smaller than the corpus.{' '}
+            <Link href="/coverage" className="text-accent underline underline-offset-4">
+              See the whole funnel
+            </Link>
+            .
           </p>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile
-              value={pct(stats.blockingAnyTier1, observed)}
-              label="Block at least one answer-surface crawler"
+              value={pctStr(stats.blockingAnyTier1, observed)}
+              animateTo={pct(stats.blockingAnyTier1, observed)}
+              suffix="%"
+              label="Block a crawler that answers questions"
               sub={`${stats.blockingAnyTier1.toLocaleString()} of ${observed.toLocaleString()} sites`}
+              termId="answer-surface"
             />
             <StatTile
-              value={pct(stats.llmsTxt, observed)}
+              value={pctStr(gaps, observed)}
+              animateTo={pct(gaps, observed)}
+              suffix="%"
+              label="Say one thing and do another"
+              sub={`${gaps.toLocaleString()} permit GPTBot in robots.txt and refuse it at the server`}
+              termId="policy-gap"
+              tone="bad"
+            />
+            <StatTile
+              value={pctStr(stats.llmsTxt, observed)}
+              animateTo={pct(stats.llmsTxt, observed)}
+              suffix="%"
               label="Publish an llms.txt"
-              sub={`${stats.llmsTxt.toLocaleString()} sites`}
-            />
-            <StatTile
-              value={pct(stats.refusedGptbot, observed)}
-              label="Refuse GPTBot at the server"
-              sub={`${stats.refusedGptbot.toLocaleString()} sites, whatever robots.txt says`}
+              sub={`${stats.llmsTxt.toLocaleString()} sites, out of ${observed.toLocaleString()}`}
+              termId="llms-txt"
             />
             <StatTile
               value={stats.meanScore === null ? 'n/a' : String(Math.round(stats.meanScore))}
+              animateTo={stats.meanScore ?? undefined}
               label="Mean readiness score"
-              sub="Out of 100, across scored sites"
+              sub="Out of 100, across fully scored sites"
+              termId="score"
             />
           </div>
         </section>
       ) : (
-        <section className="mb-14">
+        <section className="mb-16">
           <p className="border border-rule rounded p-4 bg-raised">
             The first crawl has not completed yet. Statistics appear here once it has.
           </p>
         </section>
       )}
 
-      {networks.length ? (
-        <section className="mb-14" aria-labelledby="who-decides">
+      <Reveal>
+        <section className="mb-16" aria-labelledby="gap">
+          <h2 id="gap" className="text-2xl font-bold mb-1">
+            The gap between what sites say and what they do
+          </h2>
+          <p className="text-sm text-muted mb-5 max-w-2xl">
+            robots.txt is a published promise. What a server does when an AI crawler actually knocks
+            is a separate fact. Every index in this category publishes the first one. We measure
+            both on every domain, and{' '}
+            <strong className="text-ink tnum">{gaps.toLocaleString()}</strong> sites turn out to be
+            enforcing a policy they never published.
+          </p>
+          <PolicyQuadrant counts={quadrant} total={rows.length} />
+          <p className="mt-4 text-sm">
+            <Link href="/findings#policy-gap" className="text-accent underline underline-offset-4">
+              Which sites, and why it happens
+            </Link>
+          </p>
+        </section>
+      </Reveal>
+
+      <Reveal>
+        <section className="mb-16" aria-labelledby="who-decides">
           <h2 id="who-decides" className="text-2xl font-bold mb-1">
             Who is actually deciding
           </h2>
           <p className="text-sm text-muted mb-5 max-w-2xl">
-            Most operators never formed a policy on AI crawlers. Their edge network did, by
-            default, and they inherited it.
+            <strong className="text-ink tnum">{inherited.toLocaleString()}</strong> measured sites
+            have a robots.txt that names no AI crawler at all, against{' '}
+            <strong className="text-ink tnum">{deliberate.toLocaleString()}</strong> that name at
+            least one. For most of the web, the AI policy is a side effect of a default somebody
+            else shipped.{' '}
             {topNetwork && lowNetwork && topNetwork.id !== lowNetwork.id ? (
               <>
-                {' '}
-                Sites behind <strong>{topNetwork.id}</strong> block an answer-surface crawler{' '}
-                <strong className="tnum">{topNetwork.blockingRate.toFixed(1)}%</strong> of the time,
-                against <strong className="tnum">{lowNetwork.blockingRate.toFixed(1)}%</strong>{' '}
-                behind <strong>{lowNetwork.id}</strong>.
+                Sites behind <strong className="text-ink">{topNetwork.id}</strong> block an
+                answer-surface crawler{' '}
+                <strong className="text-ink tnum">{topNetwork.blockingRate.toFixed(1)}%</strong> of
+                the time against{' '}
+                <strong className="text-ink tnum">{lowNetwork.blockingRate.toFixed(1)}%</strong>{' '}
+                behind <strong className="text-ink">{lowNetwork.id}</strong>, a spread far wider
+                than anything the sites themselves publish explains.
               </>
             ) : null}
           </p>
-          <CohortTable cohorts={networks} kind="network" caption="AI blocking rate by edge network" />
-          <p className="mt-3 text-sm">
+
+          <div className="grid gap-8 lg:grid-cols-2 items-start">
+            <div>
+              <h3 className="text-sm font-semibold mb-3">
+                <Explain id="posture">Policy posture</Explain>
+              </h3>
+              <ul className="space-y-3">
+                {postures.map((p) => (
+                  <li key={p.id}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="font-medium">{POSTURE_LABEL[p.id]}</span>
+                      <span className="tnum text-muted">
+                        {p.count.toLocaleString()} ({pctStr(p.count, rows.length)})
+                      </span>
+                    </div>
+                    <GrowBar
+                      percent={pct(p.count, rows.length)}
+                      label={`${POSTURE_LABEL[p.id]}: ${p.count} sites`}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-3">
+                Blocking rate by <Explain id="edge-network">edge network</Explain>
+              </h3>
+              <RankedBars
+                caption="Share of sites behind each edge network that block at least one answer-surface crawler"
+                data={networks.map((n) => ({
+                  id: n.id,
+                  label: n.id,
+                  value: n.blockingRate,
+                  href: `/networks/${n.id}`,
+                }))}
+              />
+            </div>
+          </div>
+
+          <p className="mt-5 text-sm">
             <Link href="/networks" className="text-accent underline underline-offset-4">
               All edge networks
             </Link>
@@ -120,147 +262,189 @@ export default function HomePage() {
             <Link href="/platforms" className="text-accent underline underline-offset-4">
               By publishing platform
             </Link>
+            {' . '}
+            <Link href="/findings#who-decides" className="text-accent underline underline-offset-4">
+              The full argument
+            </Link>
           </p>
         </section>
-      ) : null}
+      </Reveal>
 
       {platforms.length ? (
-        <section className="mb-14" aria-labelledby="platforms">
-          <h2 id="platforms" className="text-2xl font-bold mb-1">
-            Readiness by platform
-          </h2>
-          <p className="text-sm text-muted mb-5">
-            What a site is built on predicts how legible it is to an agent.
-          </p>
-          <CohortTable cohorts={platforms} kind="platform" caption="AI blocking rate by publishing platform" />
-        </section>
+        <Reveal>
+          <section className="mb-16" aria-labelledby="platforms">
+            <h2 id="platforms" className="text-2xl font-bold mb-1">
+              Readiness by platform
+            </h2>
+            <p className="text-sm text-muted mb-5 max-w-2xl">
+              What a site is built on predicts how legible it is to an agent, because the defaults
+              come with the box.
+            </p>
+            <CohortTable cohorts={platforms} kind="platform" caption="AI blocking rate by publishing platform" />
+          </section>
+        </Reveal>
       ) : null}
 
       {stats ? (
-        <section className="mb-14" aria-labelledby="bots">
-          <h2 id="bots" className="text-2xl font-bold mb-1">
-            Which crawlers get shut out
+        <Reveal>
+          <section className="mb-16" aria-labelledby="bots">
+            <h2 id="bots" className="text-2xl font-bold mb-1">
+              Which crawlers get shut out
+            </h2>
+            <p className="text-sm text-muted mb-5 max-w-2xl">
+              Share of measured sites whose robots.txt denies each crawler the site root. The first{' '}
+              {TIER1.length} are{' '}
+              <Explain id="answer-surface">answer-surface crawlers</Explain>, whose output reaches a
+              reader today.
+            </p>
+            <div className="overflow-x-auto border border-rule rounded">
+              <table className="w-full text-sm border-collapse">
+                <caption className="sr-only">AI crawlers ranked by how many indexed sites block them</caption>
+                <thead>
+                  <tr className="bg-raised text-left">
+                    <th scope="col" className="px-3 py-2 border-b border-rule font-semibold">Crawler</th>
+                    <th scope="col" className="px-3 py-2 border-b border-rule font-semibold">Operator</th>
+                    <th scope="col" className="px-3 py-2 border-b border-rule font-semibold w-32">Blocked by</th>
+                    <th scope="col" className="px-3 py-2 border-b border-rule font-semibold w-40">
+                      <span className="sr-only">Proportion</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {botRows.slice(0, 12).map((b, i) => {
+                    const share = pct(b.blocked, observed);
+                    return (
+                      <tr key={b.token} className="border-b border-rule last:border-0">
+                        <td className="px-3 py-2">
+                          <Link href={`/bots/${agentSlug(b.token)}`} className="font-mono hover:text-accent underline underline-offset-4">
+                            {b.token}
+                          </Link>
+                        </td>
+                        <td className="px-3 py-2 text-muted">{b.operator}</td>
+                        <td className="px-3 py-2 tnum">
+                          {b.blocked.toLocaleString()} <span className="text-muted">({share.toFixed(1)}%)</span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <GrowBar percent={share} delayMs={i * 35} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-3 text-sm">
+              <Link href="/bots" className="text-accent underline underline-offset-4">
+                All {AGENTS.length} tracked crawlers
+              </Link>
+            </p>
+          </section>
+        </Reveal>
+      ) : null}
+
+      <Reveal>
+        <section className="mb-16" aria-labelledby="spread">
+          <h2 id="spread" className="text-2xl font-bold mb-1">
+            How the web scores
           </h2>
-          <p className="text-sm text-muted mb-5">
-            Share of measured sites whose robots.txt denies each crawler the site root.
+          <p className="text-sm text-muted mb-5 max-w-2xl">
+            The distribution across every fully measured site. Most of the web sits in the middle:
+            not hostile to agents, just never set up for them.
           </p>
-          <div className="overflow-x-auto border border-rule rounded">
-            <table className="w-full text-sm border-collapse">
-              <caption className="sr-only">AI crawlers ranked by how many indexed sites block them</caption>
-              <thead>
-                <tr className="bg-raised text-left">
-                  <th scope="col" className="px-3 py-2 border-b border-rule font-semibold">Crawler</th>
-                  <th scope="col" className="px-3 py-2 border-b border-rule font-semibold">Operator</th>
-                  <th scope="col" className="px-3 py-2 border-b border-rule font-semibold w-32">Blocked by</th>
-                  <th scope="col" className="px-3 py-2 border-b border-rule font-semibold w-40">
-                    <span className="sr-only">Proportion</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {botRows.slice(0, 12).map((b) => {
-                  const share = observed ? (b.blocked / observed) * 100 : 0;
-                  return (
-                    <tr key={b.token} className="border-b border-rule last:border-0">
-                      <td className="px-3 py-2">
-                        <Link href={`/bots/${agentSlug(b.token)}`} className="font-mono hover:text-accent underline underline-offset-4">
-                          {b.token}
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2 text-muted">{b.operator}</td>
-                      <td className="px-3 py-2 tnum">
-                        {b.blocked.toLocaleString()} <span className="text-muted">({share.toFixed(1)}%)</span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div aria-hidden="true" className="h-2 bg-rule rounded-full overflow-hidden">
-                          <div className="h-full bg-accent" style={{ width: `${Math.max(1, share)}%` }} />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-3 text-sm">
-            <Link href="/bots" className="text-accent underline underline-offset-4">
-              All {AGENTS.length} tracked crawlers
+          <Histogram buckets={scoreHistogram()} />
+          <p className="mt-4 text-sm">
+            <Link href="/check" className="text-accent underline underline-offset-4">
+              Find out where your site sits
             </Link>
           </p>
         </section>
-      ) : null}
+      </Reveal>
 
-      <section className="mb-14" aria-labelledby="worst">
-        <h2 id="worst" className="text-2xl font-bold mb-1">
-          Least agent-ready right now
-        </h2>
-        <p className="text-sm text-muted mb-5">
-          Fully measured sites with the lowest scores. Partial assessments are excluded because a
-          renormalised score is not comparable to a complete one.
-        </p>
-        <DomainTable rows={worst} caption="Lowest scoring domains in the index" />
-        <p className="mt-3 text-sm">
-          <Link href="/leaderboard" className="text-accent underline underline-offset-4">
-            Full leaderboard, best and worst
-          </Link>
-        </p>
-      </section>
+      <Reveal>
+        <section className="mb-16" aria-labelledby="worst">
+          <h2 id="worst" className="text-2xl font-bold mb-1">
+            Least agent-ready right now
+          </h2>
+          <p className="text-sm text-muted mb-5 max-w-2xl">
+            Fully measured sites with the lowest scores, one row per operator.{' '}
+            <Explain id="partial">Partial assessments</Explain> are excluded, because a
+            renormalised score is not comparable with a complete one.
+          </p>
+          <EntityTable groups={worst} caption="Lowest scoring operators in the index" />
+          <p className="mt-3 text-sm">
+            <Link href="/leaderboard" className="text-accent underline underline-offset-4">
+              Full leaderboard, best and worst
+            </Link>
+          </p>
+        </section>
+      </Reveal>
 
       {changes.length ? (
-        <section className="mb-14" aria-labelledby="changes">
-          <h2 id="changes" className="text-2xl font-bold mb-1">
-            Recent movements
-          </h2>
-          <p className="text-sm text-muted mb-5">
-            Only real changes are recorded. A site's first measurement is a baseline, not an event.
-          </p>
-          <ul className="space-y-2 text-sm">
-            {changes.map((c, i) => (
-              <li key={`${c.domain}-${i}`} className="flex flex-wrap gap-x-3 gap-y-1 border-b border-rule pb-2">
-                <time className="tnum text-muted shrink-0" dateTime={c.changedAt}>
-                  {c.changedAt.slice(0, 10)}
-                </time>
-                <Link href={`/site/${c.domain}`} className="font-mono hover:text-accent underline underline-offset-4">
-                  {c.domain}
-                </Link>
-                <span className="text-muted">{c.summary}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-3 text-sm">
-            <Link href="/changes" className="text-accent underline underline-offset-4">
-              All recorded changes
-            </Link>
-          </p>
-        </section>
+        <Reveal>
+          <section className="mb-16" aria-labelledby="changes">
+            <h2 id="changes" className="text-2xl font-bold mb-1">
+              Recent movements
+            </h2>
+            <p className="text-sm text-muted mb-5 max-w-2xl">
+              Only real changes are recorded. A site&apos;s first measurement is a baseline, not an
+              event, and nothing is diffed across a change to our own probe.
+            </p>
+            <ul className="space-y-2 text-sm">
+              {changes.map((c, i) => (
+                <li key={`${c.domain}-${i}`} className="flex flex-wrap gap-x-3 gap-y-1 border-b border-rule pb-2">
+                  <time className="tnum text-muted shrink-0" dateTime={c.changedAt}>
+                    {c.changedAt.slice(0, 10)}
+                  </time>
+                  <Link href={`/site/${c.domain}`} className="font-mono hover:text-accent underline underline-offset-4">
+                    {c.domain}
+                  </Link>
+                  <span className="text-muted">{c.summary}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-sm">
+              <Link href="/changes" className="text-accent underline underline-offset-4">
+                All recorded changes
+              </Link>
+            </p>
+          </section>
+        </Reveal>
       ) : null}
 
-      <section className="border-t border-rule pt-8">
-        <h2 className="text-2xl font-bold mb-3">Why this exists</h2>
-        <div className="max-w-2xl space-y-4 leading-relaxed text-muted">
-          <p>
-            Publishers are deciding, one robots.txt at a time, whether AI systems may read the web.
-            Those decisions are made quietly, changed without announcement, and are individually
-            trivial to check but collectively invisible.
-          </p>
-          <p>
-            {SITE.name} checks them on a schedule and keeps the receipts. The rubric is published,
-            every score is arithmetic over archived evidence, and no language model touches the
-            numbers. The whole dataset is downloadable. If you disagree with a result you can read
-            exactly how it was reached and recompute it yourself.
-          </p>
-          <p>
-            <Link href="/methodology" className="text-accent underline underline-offset-4">
-              Read the methodology
-            </Link>
-            {' . '}
-            <Link href="/data" className="text-accent underline underline-offset-4">
-              Download the dataset
-            </Link>
-          </p>
-        </div>
-      </section>
+      <Reveal>
+        <section className="border-t border-rule pt-8">
+          <h2 className="text-2xl font-bold mb-3">Why this exists</h2>
+          <div className="max-w-2xl space-y-4 leading-relaxed text-muted">
+            <p>
+              Publishers are deciding, one robots.txt at a time, whether AI systems may read the
+              web. Those decisions are made quietly, changed without announcement, and are
+              individually trivial to check but collectively invisible.
+            </p>
+            <p>
+              {SITE.name} checks them on a schedule and keeps the receipts. The rubric is published,
+              every score is arithmetic over archived evidence, and no language model touches the
+              numbers. The whole dataset is downloadable. If you disagree with a result you can read
+              exactly how it was reached and recompute it yourself.
+            </p>
+            <p className="flex flex-wrap gap-x-5 gap-y-1">
+              <Link href="/methodology" className="text-accent underline underline-offset-4">
+                Read the methodology
+              </Link>
+              <Link href="/glossary" className="text-accent underline underline-offset-4">
+                What every term means
+              </Link>
+              <Link href="/data" className="text-accent underline underline-offset-4">
+                Download the dataset
+              </Link>
+              <Link href="/submit" className="text-accent underline underline-offset-4">
+                Add a domain
+              </Link>
+            </p>
+          </div>
+        </section>
+      </Reveal>
 
+      <PageMeta />
       <Attribution subject="The state of AI crawler access" measuredOn={stats?.day ?? null} />
     </>
   );

@@ -22,6 +22,15 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AGENTS } from './agents';
+import {
+  accessArchetype,
+  percentileOf,
+  policyGap,
+  policyPosture,
+  type AccessArchetype,
+  type PolicyGap,
+  type PolicyPosture,
+} from './facets';
 import { scoreObservation } from './score';
 import { tldOf } from './probe';
 import type { AccessMap, Observation, Score } from './types';
@@ -43,6 +52,15 @@ export type DomainRow = {
   tld: string;
   obs: Observation;
   score: Score;
+  /** Facets. Pure functions of `obs`, computed here for the same reason the score is. */
+  posture: PolicyPosture;
+  archetype: AccessArchetype;
+  gap: PolicyGap;
+  /**
+   * Percentage of fully scored sites this one beats. Null when the site has no comparable
+   * score, because a percentile over a renormalised partial is a different scale.
+   */
+  percentile: number | null;
 };
 
 export type DailyStats = {
@@ -123,14 +141,31 @@ function load() {
       continue; // One corrupt line must not take the site down.
     }
     const obs = withAccess(rec.obs);
+    const score = scoreObservation(obs);
     rows.push({
       domain: rec.domain,
       rank: rec.rank ?? null,
       firstSeen: rec.firstSeen,
       tld: tldOf(rec.domain),
       obs,
-      score: scoreObservation(obs),
+      score,
+      posture: policyPosture(obs),
+      archetype: accessArchetype(obs),
+      gap: policyGap(obs),
+      percentile: null, // filled below, once the whole population is known
     });
+  }
+
+  // Percentile needs every score first. Comparable scores only: a partial assessment is
+  // renormalised over fewer points, so ranking it against complete ones compares scales.
+  const comparable = rows
+    .filter((r) => r.score.total !== null && !r.score.partial)
+    .map((r) => r.score.total as number)
+    .sort((a, b) => a - b);
+  for (const r of rows) {
+    if (r.score.total !== null && !r.score.partial) {
+      r.percentile = percentileOf(r.score.total, comparable);
+    }
   }
 
   cache = {
@@ -150,6 +185,17 @@ function load() {
     meta: readJson<Meta | null>('meta.json', null),
   };
   return cache;
+}
+
+/**
+ * Drop the in-process cache.
+ *
+ * The site never needs this: it loads once per build and the files cannot change under
+ * it. The crawler does, because it writes the dataset and then immediately reads it back
+ * to decide whether a completed month needs sealing.
+ */
+export function resetDatasetCache(): void {
+  cache = null;
 }
 
 export const allDomains = (): DomainRow[] => load().rows;
@@ -259,4 +305,66 @@ export function rowsInCohort(key: (r: DomainRow) => string | null, id: string, l
     .rows.filter((r) => key(r) === id)
     .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9))
     .slice(0, limit);
+}
+
+// --- facet aggregates -------------------------------------------------------
+
+/** Count rows by a facet, over the observed population. Order is highest count first. */
+export function facetCounts<T extends string>(key: (r: DomainRow) => T): Array<{ id: T; count: number }> {
+  const m = new Map<T, number>();
+  for (const r of observedRows()) m.set(key(r), (m.get(key(r)) ?? 0) + 1);
+  return [...m.entries()].map(([id, count]) => ({ id, count })).sort((a, b) => b.count - a.count);
+}
+
+/** Sites whose robots.txt permits GPTBot and whose server refuses it anyway. */
+export const policyGaps = (limit = 200): DomainRow[] =>
+  load()
+    .rows.filter((r) => r.gap.gap)
+    .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9))
+    .slice(0, limit);
+
+export const countPolicyGaps = (): number => load().rows.filter((r) => r.gap.gap).length;
+
+/** Sites publishing a machine-readable licence or granular usage preferences. */
+export const countWithSignal = (key: (o: Observation) => boolean): number =>
+  observedRows().filter((r) => key(r.obs)).length;
+
+/**
+ * Score distribution in ten-point buckets, over comparable scores only.
+ * Index 0 is 0-9, index 9 is 90-100.
+ */
+export function scoreHistogram(): number[] {
+  const buckets = new Array(10).fill(0) as number[];
+  for (const r of scoredRows()) {
+    const t = r.score.total as number;
+    buckets[Math.min(9, Math.floor(t / 10))]++;
+  }
+  return buckets;
+}
+
+/**
+ * The search index. One compact tuple per domain, generated at build time and fetched by
+ * the browser on first use.
+ *
+ * Tuples rather than objects because five thousand rows of `{"domain":...,"score":...}`
+ * is several times the bytes for the same information, and this file is downloaded by
+ * anyone who opens the search box.
+ *
+ * [domain, rank, score, grade, flags] where flags is a bitfield:
+ *   1 blocks an answer-surface crawler
+ *   2 publishes llms.txt
+ *   4 policy gap
+ *   8 partial assessment
+ */
+export type SearchTuple = [string, number, number, string, number];
+
+export function searchIndex(): SearchTuple[] {
+  return load().rows.map((r) => {
+    let flags = 0;
+    if (r.obs.tier1Blocked.length > 0) flags |= 1;
+    if (r.obs.llmsTxt.present) flags |= 2;
+    if (r.gap.gap) flags |= 4;
+    if (r.score.partial) flags |= 8;
+    return [r.domain, r.rank ?? 0, r.score.total ?? -1, r.score.grade ?? '', flags];
+  });
 }

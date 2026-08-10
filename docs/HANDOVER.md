@@ -1,8 +1,13 @@
 # CrawlIndex handover
 
-**Last updated:** 2026-08-09, end of the final build session.
+**Last updated:** 2026-08-10, end of the v2 build session.
 **Status:** Live at https://crawlindex.org, public, self-running, EUR 0/month.
 **Audience:** whoever touches this next, human or agent. Probably nobody, which is the point.
+
+> **v2, 2026-08-10.** Design doc: `docs/superpowers/specs/2026-08-10-crawlindex-v2-design.md`.
+> Section 9 below summarises what changed and the two bugs it fixed. Probe is now 3.0.0 and
+> the rubric 2.0.0, so **the first crawl after this deploy re-scores the whole corpus and
+> suppresses change detection for one night.** That is intended.
 
 ---
 
@@ -204,7 +209,99 @@ discovered by the pipeline failing.
 
 1. **Nothing is required.** The site runs indefinitely without intervention. Everything
    below is optional.
-2. Reports publish themselves: the first crawl in a new month creates that month's report,
-   links it and adds it to the sitemap. No human step exists.
+2. Reports publish themselves and now seal themselves. See section 9.
 3. If a cross-tab ever looks implausible, the likely cause is a fingerprint misfiring.
    `pnpm probe <domain>` prints the detection for one site without writing anything.
+
+---
+
+## 9. What v2 changed, 2026-08-10
+
+### Two real bugs
+
+**The soft wall.** `amazon.com` was stored as HTTP 200, 2,167 bytes, `&nbsp;` title, zero
+extractable text. `detectChallenge` looked for 402/403/429/451, vendor fingerprints and
+auto-submitting forms, and a 200-with-nothing-in-it slipped through all of them. Eight
+body-derived score lines were therefore charged to Amazon, it scored 8 out of 100, and
+twenty regional Amazon domains occupied most of the bottom of the leaderboard. That is a
+straight violation of design rule 3.
+
+Fixed in two places on purpose. `detectChallenge` raises the new `ControlKind: 'unreadable'`
+for fresh crawls, and `bodyIsStub()` in `lib/score.ts` re-derives the same condition from
+archived evidence, so the four thousand records already on disk were corrected on load
+rather than waiting for a re-crawl. Thresholds: under 5,000 bytes **and** under 100
+characters of text, both required. tiktok.com ships 362KB with 22 characters and correctly
+does not trip it.
+
+**The self-rewriting reports.** `getMonthReport` read a past month's cross-tabs from the
+live dataset and its change list from a rolling 4,000-record window, so July's report said
+something different in September and eventually lost its own changes. A completed month is
+now sealed to `data/reports/YYYY-MM.json` by the crawl and never rewritten; the month in
+progress is computed live and labelled as moving. `writeFrozenReport` refuses to overwrite,
+and that refusal is the feature.
+
+### An import side effect worth remembering
+
+`worker/*.ts` call `main()` at module scope. When `intake.ts` imported one predicate from
+`seed.ts`, that started a live Tranco fetch and a second concurrent write to `corpus.json`
+purely as an import side effect. The test suite caught it. Shared rules moved to
+`lib/corpus-rules.ts`, which does nothing on load, and every worker now guards `main()`
+with `isEntrypoint(import.meta.url)`.
+
+### Rubric 2.0.0 and probe 3.0.0
+
+Bands still total 45 / 25 / 30. Five lines added, existing weights trimmed to pay for them:
+`declared-licence` (RSL `License:` in robots.txt), `content-signal`, `agent-card`,
+`dateline`, `authorship`.
+
+Everything new is derived from bytes already fetched except **one** extra request, to
+`/.well-known/agent-card.json`. Six requests per domain now, up from five, so a full pass is
+roughly 50 minutes rather than 40. Free either way on a public repo.
+
+Checked against deployment reality before selection: `/.well-known/mcp.json` is not a
+canonical path and A2A cards live at `agent-card.json`, so the intended MCP signal was
+dropped. Cloudflare's `Content-Signal:` robots directive is real and free to read, and
+tracking its spread measures this project's own central claim.
+
+**Records predating probe 3 score the new lines `available: false`, never zero**, and
+`partial` compares against `expectedMax` rather than 100. Without that, upgrading the probe
+would have marked every archived record partial, emptied the leaderboard, and published a
+fabricated decline for four thousand sites that did nothing.
+
+### Facets, published beside the score rather than folded into it
+
+`lib/facets.ts`: policy posture (deliberate / inherited / blanket / absent), access
+archetype, and the **policy gap**, which is the strongest thing in the dataset and costs
+nothing. robots.txt permitting GPTBot while the server refuses it was measurable from day
+one and nobody had crossed the two halves. 533 sites, 14.7%, on the 2026-08-09 data.
+
+Entity grouping (`lib/entities.ts`) collapses ranked lists to one row per operator. It is a
+**view**: nothing leaves `allDomains()`, the API, the sitemap or the per-domain pages.
+
+### The badge
+
+Now an award with named tiers. Grade A is Agent Ready, B is Agent Friendly, and the seal
+and card files are **generated only for those**, so a site scoring 41 gets a prioritised fix
+list instead of a graphic nobody would embed. `/badge` explains all of it, which nothing on
+the site previously did.
+
+Route note that cost a build: `/badge/[slug]` and `/badge/[variant]/[slug]` cannot coexist.
+Next refuses two differently-named dynamic segments at the same position, the build passes,
+and then every route on the site throws at runtime. Variants use literal segments
+(`/badge/seal/[slug]`) sharing one handler in `lib/badge-route.ts`.
+
+### Everything else
+
+Search (client-side over a static `/search-index.json`, with a no-JavaScript `/search`
+page), domain submission through a GitHub issue form processed by `worker/intake.ts` with
+no secret beyond `GITHUB_TOKEN`, a glossary wired into inline `<details>` definitions, a
+`/coverage` page publishing the full funnel and every failure reason, a `/findings` page,
+hand-rolled SVG charts, and motion primitives.
+
+**The motion rule, which is not negotiable:** the server renders the true final value and
+animation is only ever an enhancement on top of it. Rendering zero and counting up on scroll
+produces a site that reads as broken to anyone who scrolls fast, prints, has JavaScript off,
+or is a crawler. For an index whose whole value is that its numbers are correct, that is the
+worst available failure and it looks fine to whoever built it.
+
+Tests: 109, up from 48.

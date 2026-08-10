@@ -22,13 +22,27 @@ mkdirSync(dest, { recursive: true });
 
 let copied = 0;
 let bytes = 0;
-for (const name of readdirSync(src)) {
-  if (name.endsWith('.tmp')) continue;
-  const from = join(src, name);
-  if (!statSync(from).isFile()) continue;
-  copyFileSync(from, join(dest, name));
-  copied++;
-  bytes += statSync(from).size;
+
+// Recursive because sealed monthly reports live in `data/reports/`. They are part of the
+// published dataset, not an internal artefact: a citation of a monthly report should be
+// able to point at the exact JSON the page was rendered from.
+function copyTree(fromDir, toDir) {
+  mkdirSync(toDir, { recursive: true });
+  for (const name of readdirSync(fromDir)) {
+    if (name.endsWith('.tmp')) continue;
+    const from = join(fromDir, name);
+    const stat = statSync(from);
+    if (stat.isDirectory()) {
+      copyTree(from, join(toDir, name));
+      continue;
+    }
+    if (!stat.isFile()) continue;
+    copyFileSync(from, join(toDir, name));
+    copied++;
+    bytes += stat.size;
+  }
 }
+
+copyTree(src, dest);
 
 console.log(`Published ${copied} dataset files to public/data (${(bytes / 1024 / 1024).toFixed(2)} MB).`);

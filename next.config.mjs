@@ -8,6 +8,9 @@ const nextConfig = {
   // serverless bundle and that lookup fails in production while working perfectly locally.
   outputFileTracingIncludes: {
     '/check': ['./data/**'],
+    // /search is the no-JavaScript fallback for the search dialog and reads the same
+    // dataset at request time, so it needs the same tracing exception.
+    '/search': ['./data/**'],
   },
 
   async headers() {

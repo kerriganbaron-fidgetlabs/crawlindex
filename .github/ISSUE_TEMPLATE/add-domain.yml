@@ -1,0 +1,57 @@
+name: Add a domain to the index
+description: Ask for a domain to be measured nightly and given a permanent page.
+title: 'Add domain: '
+labels: ['domain-submission']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The index covers the most-visited domains on the web. Anything outside that can be
+        added here.
+
+        Submissions are processed automatically by the nightly crawl. There is no review
+        queue and nobody is waiting to approve anything: a valid domain is added to the
+        corpus, measured on the next run, and this issue is closed with a link to its page.
+        An invalid one is closed with the reason.
+
+        **You do not need permission from the site owner.** Everything measured is already
+        served publicly to every crawler on the internet. If an operator wants out, they
+        disallow `CrawlIndexBot` in their robots.txt and the domain leaves on the next
+        crawl, which is checked before any other request is made.
+
+  - type: input
+    id: domain
+    attributes:
+      label: Domain
+      description: Just the hostname. No scheme, no path, no www.
+      placeholder: example.com
+    validations:
+      required: true
+
+  - type: dropdown
+    id: relationship
+    attributes:
+      label: Your relationship to it
+      description: Recorded for context only. It does not affect whether the domain is added or how it scores.
+      options:
+        - I run this site
+        - I am researching it
+        - No relationship, I am just curious
+    validations:
+      required: false
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Anything worth knowing
+      description: Optional. For example, if the site serves different content by region, or sits behind a CDN you think is making the decision for it.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: acknowledge
+    attributes:
+      label: Before you submit
+      options:
+        - label: I understand the score is published openly, whatever it turns out to be, and that the whole dataset is CC BY 4.0.
+          required: true

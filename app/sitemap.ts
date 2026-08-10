@@ -14,7 +14,9 @@ import { absoluteUrl } from '../lib/site';
 export default function sitemap(): MetadataRoute.Sitemap {
   const statics: MetadataRoute.Sitemap = [
     { url: absoluteUrl('/'), changeFrequency: 'daily', priority: 1 },
+    { url: absoluteUrl('/findings'), changeFrequency: 'daily', priority: 0.95 },
     { url: absoluteUrl('/leaderboard'), changeFrequency: 'daily', priority: 0.9 },
+    { url: absoluteUrl('/badge'), changeFrequency: 'weekly', priority: 0.9 },
     { url: absoluteUrl('/networks'), changeFrequency: 'daily', priority: 0.9 },
     { url: absoluteUrl('/platforms'), changeFrequency: 'daily', priority: 0.9 },
     { url: absoluteUrl('/tlds'), changeFrequency: 'daily', priority: 0.8 },
@@ -23,6 +25,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: absoluteUrl('/reports'), changeFrequency: 'weekly', priority: 0.8 },
     { url: absoluteUrl('/data'), changeFrequency: 'weekly', priority: 0.8 },
     { url: absoluteUrl('/check'), changeFrequency: 'monthly', priority: 0.7 },
+    { url: absoluteUrl('/submit'), changeFrequency: 'monthly', priority: 0.7 },
+    { url: absoluteUrl('/coverage'), changeFrequency: 'weekly', priority: 0.7 },
+    { url: absoluteUrl('/glossary'), changeFrequency: 'monthly', priority: 0.7 },
     { url: absoluteUrl('/methodology'), changeFrequency: 'monthly', priority: 0.7 },
     { url: absoluteUrl('/about'), changeFrequency: 'monthly', priority: 0.5 },
     { url: absoluteUrl('/api'), changeFrequency: 'monthly', priority: 0.5 },

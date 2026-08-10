@@ -15,7 +15,8 @@
  */
 
 import { AGENTS, REGISTRY_VERSION, TIER1 } from '../lib/agents';
-import type { ChangeRecord, DailyStats, StoredRecord } from '../lib/dataset';
+import { resetDatasetCache, type ChangeRecord, type DailyStats, type StoredRecord } from '../lib/dataset';
+import { buildFrozenReport, resetReportCache, unsealedMonths } from '../lib/report';
 import { mapPool, normaliseDomain, pruneGate } from '../lib/http';
 import { currentVantage, PROBE_VERSION, probeDomain } from '../lib/probe';
 import { RUBRIC_VERSION, scoreObservation } from '../lib/score';
@@ -26,6 +27,7 @@ import {
   readRecords,
   upsertStats,
   writeCorpus,
+  writeFrozenReport,
   writeMeta,
   writeRecords,
   type CorpusEntry,
@@ -254,6 +256,21 @@ async function main() {
   });
 
   console.log(`Dataset written: ${allRecords.length} published records.`);
+
+  // --- seal any month that has ended ---------------------------------------
+  // Read back what was just written, so the seal describes the state the month closed in.
+  // A month is sealed once and then never touched, which is what makes a report citable
+  // rather than a template over whatever the dataset happens to say later.
+  resetDatasetCache();
+  resetReportCache();
+  const today = new Date().toISOString().slice(0, 10);
+  const frozenAt = new Date().toISOString();
+  for (const month of unsealedMonths(today)) {
+    const report = buildFrozenReport(month, frozenAt);
+    if (report && writeFrozenReport(month, report)) {
+      console.log(`Sealed the ${month} report. It will not be regenerated.`);
+    }
+  }
 }
 
 main().catch((e) => {

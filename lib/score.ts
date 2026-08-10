@@ -22,9 +22,50 @@
 import { TIER1, TIER2 } from './agents';
 import type { Observation, Score, ScoreLine } from './types';
 
-export const RUBRIC_VERSION = '1.0.0';
+export const RUBRIC_VERSION = '2.0.0';
+
+/**
+ * Points that only a probe-3 record can earn, because an older probe never looked for
+ * them. A record archived before those signals existed has these lines marked unavailable
+ * and its score renormalised over what its probe could actually see.
+ *
+ * Without this, upgrading the probe would make every archived site "partial" overnight,
+ * empty the leaderboard, and publish a fabricated decline for four thousand domains that
+ * did nothing.
+ */
+const V3_ONLY_POINTS = 2 + 2 + 1 + 3 + 2;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/**
+ * The soft-wall thresholds. A document under this many bytes containing under this much
+ * extractable text was not a page that was served to us.
+ *
+ * They live here rather than in the probe because this is a trust rule, not a fetching
+ * rule, and because the scorer has to be able to apply it to records the probe archived
+ * before the rule existed. `lib/probe.ts` imports them so both ends agree.
+ */
+export const STUB_MAX_BYTES = 5_000;
+export const STUB_MAX_TEXT = 100;
+
+/**
+ * Does this archived observation describe a stub rather than a page?
+ *
+ * Derived entirely from stored evidence, which is deliberate. Applying it at score time
+ * as well as at probe time means the fix reaches the four thousand records already on
+ * disk instead of waiting for a re-crawl, and it puts design rule 3 in the one file that
+ * is responsible for enforcing it.
+ *
+ * `browserBytes` is the size of the control response. Zero means the comparison never
+ * ran, which the early-return paths already handle by other means.
+ */
+export function bodyIsStub(obs: Observation): boolean {
+  return (
+    obs.cloaking.browserBytes > 0 &&
+    obs.cloaking.browserBytes < STUB_MAX_BYTES &&
+    obs.content.ssrTextLength < STUB_MAX_TEXT
+  );
+}
 
 function grade(total: number): 'A' | 'B' | 'C' | 'D' | 'F' {
   if (total >= 90) return 'A';
@@ -35,7 +76,15 @@ function grade(total: number): 'A' | 'B' | 'C' | 'D' | 'F' {
 }
 
 const ACCESS_IDS = ['tier1-access', 'tier2-access', 'no-cloaking'];
-const SURFACE_IDS = ['robots', 'sitemap', 'llms-txt', 'agents-md'];
+const SURFACE_IDS = [
+  'robots',
+  'sitemap',
+  'llms-txt',
+  'agents-md',
+  'declared-licence',
+  'content-signal',
+  'agent-card',
+];
 const STRUCTURE_IDS = [
   'schema-org',
   'schema-website',
@@ -43,6 +92,8 @@ const STRUCTURE_IDS = [
   'ssr-text',
   'single-h1',
   'landmarks',
+  'dateline',
+  'authorship',
 ];
 
 export function scoreObservation(obs: Observation): Score {
@@ -66,7 +117,18 @@ export function scoreObservation(obs: Observation): Score {
   // When our control request was challenged, anything derived from the returned HTML
   // describes the challenge page, not the site. robots.txt is a separate fetch of a
   // separate path and stays trustworthy.
-  const bodyTrusted = !obs.control.challenged;
+  const stub = bodyIsStub(obs);
+  const bodyTrusted = !obs.control.challenged && !stub;
+
+  // Undefined means the record predates probe 3, so those questions were never asked.
+  // Every line reading this group checks it, and none of them substitutes a zero.
+  const sig = obs.signals;
+
+  // One phrase for why the body cannot be read, so fourteen score lines cannot drift into
+  // telling a reader two different stories about the same request.
+  const wall = stub
+    ? `the homepage answered with ${obs.cloaking.browserBytes.toLocaleString()} bytes and no extractable text, which is a stub served to our crawler rather than the site`
+    : 'our control request was challenged by a bot wall';
 
   const lines: ScoreLine[] = [];
 
@@ -105,7 +167,7 @@ export function scoreObservation(obs: Observation): Score {
     max: 7,
     available: bodyTrusted && obs.cloaking.tested,
     detail: !bodyTrusted
-      ? 'Not assessed. Our control request was challenged, so there is no clean baseline to compare against.'
+      ? `Not assessed. There is no clean baseline to compare against, because ${wall}.`
       : !obs.cloaking.tested
         ? 'Comparison did not complete.'
         : obs.cloaking.detected
@@ -127,8 +189,8 @@ export function scoreObservation(obs: Observation): Score {
   lines.push({
     id: 'sitemap',
     label: 'Sitemap declared in robots.txt',
-    earned: obs.robots.sitemapDeclared ? 5 : 0,
-    max: 5,
+    earned: obs.robots.sitemapDeclared ? 4 : 0,
+    max: 4,
     available: true,
     detail: obs.robots.sitemapDeclared
       ? 'robots.txt points crawlers at a sitemap.'
@@ -139,7 +201,7 @@ export function scoreObservation(obs: Observation): Score {
   // be our failure, not theirs.
   const surfaceDetail = (present: boolean, path: string) =>
     !bodyTrusted
-      ? `Not assessed. ${path} could not be fetched cleanly past the bot challenge.`
+      ? `Not assessed. ${path} could not be read cleanly, because ${wall}.`
       : present
         ? `${path} is served.`
         : `No ${path}.`;
@@ -149,11 +211,11 @@ export function scoreObservation(obs: Observation): Score {
   lines.push({
     id: 'llms-txt',
     label: 'llms.txt published',
-    earned: obs.llmsTxt.present ? (obs.llmsTxt.specValid ? 12 : 8) : 0,
-    max: 12,
+    earned: obs.llmsTxt.present ? (obs.llmsTxt.specValid ? 9 : 6) : 0,
+    max: 9,
     available: bodyTrusted,
     detail: !bodyTrusted
-      ? 'Not assessed. /llms.txt could not be fetched cleanly past the bot challenge.'
+      ? `Not assessed. /llms.txt could not be read cleanly, because ${wall}.`
       : !obs.llmsTxt.present
         ? 'No /llms.txt.'
         : obs.llmsTxt.specValid
@@ -163,20 +225,72 @@ export function scoreObservation(obs: Observation): Score {
   lines.push({
     id: 'agents-md',
     label: 'agents.md published',
-    earned: obs.agentsMd.present ? 5 : 0,
-    max: 5,
+    earned: obs.agentsMd.present ? 4 : 0,
+    max: 4,
     available: bodyTrusted,
     detail: surfaceDetail(obs.agentsMd.present, '/agents.md'),
   });
 
+  /**
+   * Licence declaration, RSL 1.0 or an HTML link relation.
+   *
+   * This band scores how legible a site's intent is to a machine, not how permissive it
+   * is. A site that points an agent at machine-readable terms has answered the question;
+   * silence has not. The robots.txt half is trustworthy even behind a bot wall because
+   * robots.txt is a separate fetch of a separate path.
+   */
+  const licenceEarned = sig ? (sig.licenseUrl ? 2 : bodyTrusted && sig.licenseLink ? 2 : 0) : 0;
+  lines.push({
+    id: 'declared-licence',
+    label: 'Licence terms declared',
+    earned: licenceEarned,
+    max: 2,
+    available: Boolean(sig),
+    detail: !sig
+      ? 'Not assessed. This record predates the licence check.'
+      : sig.licenseUrl
+        ? `robots.txt declares licence terms at ${sig.licenseUrl}.`
+        : bodyTrusted && sig.licenseLink
+          ? 'The homepage declares a licence with a link relation.'
+          : 'No RSL License directive and no licence link relation. Reuse terms are undeclared.',
+  });
+
+  lines.push({
+    id: 'content-signal',
+    label: 'Granular usage preferences declared',
+    earned: sig?.contentSignal ? 2 : 0,
+    max: 2,
+    available: Boolean(sig),
+    detail: !sig
+      ? 'Not assessed. This record predates the Content-Signal check.'
+      : sig.contentSignal
+        ? `robots.txt carries Content-Signal: ${sig.contentSignal}. Preferences are stated per use rather than as a single allow or deny.`
+        : 'No Content-Signal directive. Policy is expressed only as allow or deny.',
+  });
+
+  lines.push({
+    id: 'agent-card',
+    label: 'Agent card published',
+    earned: sig?.agentCard ? 1 : 0,
+    max: 1,
+    available: Boolean(sig) && bodyTrusted,
+    detail: !sig
+      ? 'Not assessed. This record predates the agent card check.'
+      : !bodyTrusted
+        ? `Not assessed. /.well-known/agent-card.json could not be read cleanly, because ${wall}.`
+        : sig.agentCard
+          ? 'Serves an A2A agent card at /.well-known/agent-card.json.'
+          : 'No agent card at /.well-known/agent-card.json.',
+  });
+
   // --- Content structure, 30 ----------------------------------------------
-  const notAssessed = 'Not assessed. Our control request was challenged by a bot wall.';
+  const notAssessed = `Not assessed, because ${wall}.`;
 
   lines.push({
     id: 'schema-org',
     label: 'Organization schema',
-    earned: obs.structured.hasOrganization ? 8 : 0,
-    max: 8,
+    earned: obs.structured.hasOrganization ? 7 : 0,
+    max: 7,
     available: bodyTrusted,
     detail: !bodyTrusted
       ? notAssessed
@@ -187,8 +301,8 @@ export function scoreObservation(obs: Observation): Score {
   lines.push({
     id: 'schema-website',
     label: 'WebSite schema',
-    earned: obs.structured.hasWebSite ? 4 : 0,
-    max: 4,
+    earned: obs.structured.hasWebSite ? 3 : 0,
+    max: 3,
     available: bodyTrusted,
     detail: !bodyTrusted ? notAssessed : obs.structured.hasWebSite ? 'WebSite JSON-LD present.' : 'No WebSite JSON-LD.',
   });
@@ -203,8 +317,8 @@ export function scoreObservation(obs: Observation): Score {
   lines.push({
     id: 'schema-other',
     label: 'Additional structured data',
-    earned: otherTypes.length > 0 ? 4 : 0,
-    max: 4,
+    earned: otherTypes.length > 0 ? 3 : 0,
+    max: 3,
     available: bodyTrusted,
     detail: !bodyTrusted
       ? notAssessed
@@ -215,8 +329,8 @@ export function scoreObservation(obs: Observation): Score {
   lines.push({
     id: 'ssr-text',
     label: 'Readable without JavaScript',
-    earned: obs.content.ssrTextLength >= 500 ? 8 : obs.content.ssrTextLength >= 150 ? 4 : 0,
-    max: 8,
+    earned: obs.content.ssrTextLength >= 500 ? 7 : obs.content.ssrTextLength >= 150 ? 4 : 0,
+    max: 7,
     available: bodyTrusted,
     detail: !bodyTrusted
       ? notAssessed
@@ -235,14 +349,53 @@ export function scoreObservation(obs: Observation): Score {
   lines.push({
     id: 'landmarks',
     label: 'Semantic landmarks',
-    earned: obs.content.landmarks.length >= 3 ? 3 : 0,
-    max: 3,
+    earned: obs.content.landmarks.length >= 3 ? 2 : 0,
+    max: 2,
     available: bodyTrusted,
     detail: !bodyTrusted
       ? notAssessed
       : obs.content.landmarks.length
         ? `Uses ${obs.content.landmarks.join(', ')}.`
         : 'No semantic landmark elements found.',
+  });
+
+  /**
+   * Dateline and authorship.
+   *
+   * An answer engine deciding whether to quote a page weighs when it was written and who
+   * wrote it. Both are cheap to declare, both are machine-readable, and an undated
+   * anonymous page is the single most common reason a factually correct source is passed
+   * over for a worse one that carries a date.
+   */
+  const dated = Boolean(sig && (sig.datePublished || sig.dateModified));
+  lines.push({
+    id: 'dateline',
+    label: 'Dateline declared',
+    earned: dated ? 3 : 0,
+    max: 3,
+    available: Boolean(sig) && bodyTrusted,
+    detail: !sig
+      ? 'Not assessed. This record predates the dateline check.'
+      : !bodyTrusted
+        ? notAssessed
+        : dated
+          ? `Declares ${[sig.datePublished ? 'a publication date' : null, sig.dateModified ? 'a modification date' : null].filter(Boolean).join(' and ')} in machine-readable form.`
+          : 'No machine-readable date. An agent cannot tell how current this page is.',
+  });
+
+  lines.push({
+    id: 'authorship',
+    label: 'Authorship declared',
+    earned: sig?.hasAuthor ? 2 : 0,
+    max: 2,
+    available: Boolean(sig) && bodyTrusted,
+    detail: !sig
+      ? 'Not assessed. This record predates the authorship check.'
+      : !bodyTrusted
+        ? notAssessed
+        : sig.hasAuthor
+          ? 'Declares an author or creator that an agent can attribute the page to.'
+          : 'No declared author. An agent quoting this page has nobody to credit.',
   });
 
   // --- aggregate -----------------------------------------------------------
@@ -273,13 +426,18 @@ export function scoreObservation(obs: Observation): Score {
 
   const total = Math.round((earned / availableMax) * 100);
 
+  // "Partial" must mean we could not observe something about THIS SITE, never that our own
+  // probe was older than our own rubric. A probe-2 record that earns everything its probe
+  // could see is a complete assessment for the questions that existed when it was taken.
+  const expectedMax = sig ? MAX_POINTS : MAX_POINTS - V3_ONLY_POINTS;
+
   return {
     total,
     grade: grade(total),
     bands,
     lines,
     rubricVersion: RUBRIC_VERSION,
-    partial: availableMax !== MAX_POINTS,
+    partial: availableMax !== expectedMax,
   };
 }
 

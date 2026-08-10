@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getMonthReport, getReportMonths, monthLabel, movement } from '../../../lib/report';
 import { absoluteUrl, SITE, citation } from '../../../lib/site';
-import { CohortTable, PageHeader, StatTile } from '../../../components/ui';
+import { CohortTable, PageHeader, ScoreChip, StatTile } from '../../../components/ui';
+import { Sparkline } from '../../../components/charts';
 
 type Props = { params: Promise<{ month: string }> };
 
@@ -47,7 +48,9 @@ export default async function ReportPage({ params }: Props) {
     '@type': 'Report',
     headline: subject,
     datePublished: last.day,
-    dateModified: last.day,
+    // A sealed report's modification date is the day it was sealed and never moves again.
+    // An open month keeps reporting its latest measurement, because it is still changing.
+    dateModified: report.frozen ? (report.frozenAt ?? last.day).slice(0, 10) : last.day,
     url: absoluteUrl(`/reports/${report.month}`),
     isAccessibleForFree: true,
     license: SITE.licenceUrl,
@@ -72,6 +75,38 @@ export default async function ReportPage({ params }: Props) {
         title={subject}
         lede={`Drawn from ${report.days} daily crawl${report.days === 1 ? '' : 's'} of up to ${last.totalDomains.toLocaleString()} Tranco-ranked domains, of which ${last.observed.toLocaleString()} could be measured.`}
       />
+
+      {/*
+        Sealed or open. This distinction is the whole reason the reports were rebuilt: the
+        first version computed a past month's cross-tabs from the live dataset and pulled
+        its change list from a rolling window, so July's report said something different in
+        September. A citation has to point at something that stays put.
+      */}
+      {report.frozen ? (
+        <p className="text-sm mb-8 border-l-2 border-good pl-4 max-w-2xl">
+          <strong className="text-good">Sealed record.</strong> This month closed and was written to
+          a permanent file on{' '}
+          <time dateTime={report.frozenAt ?? undefined} className="tnum">
+            {(report.frozenAt ?? '').slice(0, 10)}
+          </time>
+          , under rubric {report.versions.rubric} and probe {report.versions.probe}. Nothing on this
+          page will change again, including the cross-tabs and the change list. Cite it freely.{' '}
+          <a
+            href={`/data/reports/${report.month}.json`}
+            className="text-accent underline underline-offset-4"
+          >
+            The sealed JSON
+          </a>
+          .
+        </p>
+      ) : (
+        <p className="text-sm mb-8 border-l-2 border-warn pl-4 max-w-2xl">
+          <strong className="text-warn">Month in progress.</strong> These figures move with every
+          nightly crawl until {report.label} ends, at which point the report is written to a
+          permanent file and stops changing. Quote it with the measurement date attached, or wait
+          for the seal.
+        </p>
+      )}
 
       <p className="text-sm text-muted mb-8 border-l-2 border-accent pl-4 max-w-2xl">
         Research and data by{' '}
@@ -141,9 +176,40 @@ export default async function ReportPage({ params }: Props) {
           <Link href="/methodology" className="text-accent underline underline-offset-4">
             /methodology
           </Link>
+          . Coverage and its limits:{' '}
+          <Link href="/coverage" className="text-accent underline underline-offset-4">
+            /coverage
+          </Link>
           .
         </p>
       </section>
+
+      {/* Sparklines only appear once the month has three measurements. A two-point trend
+          drawn as a line is a claim the data cannot support. */}
+      {report.series.length >= 3 ? (
+        <section className="mb-12">
+          <h2 className="text-2xl font-bold mb-4">Across the month</h2>
+          <div className="grid gap-6 sm:grid-cols-3">
+            {[
+              ['Blocking an answer-surface crawler', report.series.map((s) => s.blockingAnyTier1)],
+              ['Publishing llms.txt', report.series.map((s) => s.llmsTxt)],
+              ['Mean readiness score', report.series.map((s) => s.meanScore ?? 0)],
+            ].map(([label, values]) => (
+              <figure key={label as string} className="border border-rule rounded p-4">
+                <Sparkline values={values as number[]} label={`${label} across ${report.label}`} width={200} height={40} />
+                <figcaption className="text-sm mt-2">
+                  <span className="block font-medium">{label as string}</span>
+                  <span className="tnum text-xs text-muted">
+                    {(values as number[])[0].toLocaleString()} to{' '}
+                    {(values as number[])[(values as number[]).length - 1].toLocaleString()} over{' '}
+                    {report.series.length} crawls
+                  </span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {networks.length ? (
         <section className="mb-12">
@@ -226,6 +292,36 @@ export default async function ReportPage({ params }: Props) {
               </li>
             ))}
           </ul>
+        </section>
+      ) : null}
+
+      {report.best.length ? (
+        <section className="mb-12">
+          <h2 className="text-2xl font-bold mb-1">Where the index stood</h2>
+          <p className="text-sm text-muted mb-5 max-w-2xl">
+            The top and bottom of the leaderboard{' '}
+            {report.frozen ? 'at the moment this month was sealed' : 'as it stands right now'}.
+          </p>
+          <div className="grid gap-8 sm:grid-cols-2">
+            {[
+              ['Most agent-ready', report.best],
+              ['Least agent-ready', report.worst],
+            ].map(([heading, list]) => (
+              <div key={heading as string}>
+                <h3 className="text-sm font-semibold mb-2">{heading as string}</h3>
+                <ul className="space-y-1.5">
+                  {(list as Array<{ domain: string; score: number; grade: string }>).map((r) => (
+                    <li key={r.domain} className="flex items-center gap-3 text-sm border-b border-rule pb-1.5">
+                      <ScoreChip score={r.score} grade={r.grade} />
+                      <Link href={`/site/${r.domain}`} className="font-mono hover:text-accent underline underline-offset-4">
+                        {r.domain}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
         </section>
       ) : null}
 

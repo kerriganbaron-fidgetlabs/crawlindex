@@ -42,6 +42,10 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  # Domain submissions arrive as issues. The intake step reads the open ones, adds the
+  # valid domains to the corpus, and closes each with a comment. Nothing outside this
+  # repository is touched and no secret beyond the built-in token is involved.
+  issues: write
 
 jobs:
   crawl:
@@ -74,6 +78,16 @@ jobs:
           else
             echo "Not Monday and no reseed requested. Keeping the existing corpus."
           fi
+
+      # After the reseed, so a submitted domain is not wiped by the Tranco rebuild in the
+      # same run, and before the crawl, so it is measured tonight rather than tomorrow.
+      # This step never fails the job: the worker catches its own errors, because a
+      # submission that cannot be read is not a reason to skip publishing the index.
+      - name: Take in submitted domains
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: pnpm intake
 
       - name: Crawl
         env:

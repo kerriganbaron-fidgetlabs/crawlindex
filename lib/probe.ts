@@ -1,5 +1,5 @@
 /**
- * The lite index probe. Five requests per domain, by design.
+ * The lite index probe. Six requests per domain, by design.
  *
  * The full battery in `fidget-ai-report` makes ~15 requests and takes seconds per site.
  * That is right for one commissioned report and wrong for an index that re-measures
@@ -13,8 +13,12 @@
  *   3. homepage as GPTBot      -> the cloaking comparison against the control
  *   4. /llms.txt               -> agent surface
  *   5. /agents.md              -> agent surface
+ *   6. /.well-known/agent-card.json
+ *                              -> A2A agent card, the one signal that needs its own
+ *                                 request. Adoption is near zero today, which is why it
+ *                                 is worth having the curve from the beginning.
  *
- * A site whose robots.txt bars all crawlers costs one request, not five.
+ * A site whose robots.txt bars all crawlers costs one request, not six.
  *
  * Everything in `stack` and most of `content` is derived from bytes already in hand.
  * Deriving more per fetch is the cheapest way to make the dataset richer, and it is why
@@ -28,9 +32,24 @@ import { AGENTS, LIVE_TEST_AGENTS, REGISTRY_VERSION, TIER1, TIER2 } from './agen
 import { detectNetwork, detectPlatform } from './fingerprints';
 import { politeFetch, PROBE_TOKEN, type FetchOutcome } from './http';
 import { EMPTY_ROBOTS, isAgentAllowed, isAgentNamed, parseRobots, type ParsedRobots } from './robots';
+import { STUB_MAX_BYTES, STUB_MAX_TEXT } from './score';
 import type { AccessMap, Observation } from './types';
 
-export const PROBE_VERSION = '2.0.0';
+export const PROBE_VERSION = '3.0.0';
+
+/**
+ * Compare dotted versions. Used to decide whether an archived record was taken by a probe
+ * new enough to have looked for a given signal at all.
+ */
+export function probeAtLeast(version: string | undefined, floor: string): boolean {
+  const a = (version ?? '0.0.0').split('.').map((n) => Number(n) || 0);
+  const b = floor.split('.').map((n) => Number(n) || 0);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (a[i] ?? 0) - (b[i] ?? 0);
+    if (d !== 0) return d > 0;
+  }
+  return true;
+}
 
 /** Where this process is running. Observations are only comparable within a vantage. */
 export function currentVantage(): string {
@@ -60,11 +79,30 @@ function stripToText(html: string): string {
     .trim();
 }
 
-function extractJsonLdTypes(html: string): string[] {
-  const types: string[] = [];
+type JsonLdSummary = {
+  types: string[];
+  /** Any node in the graph declares an author. */
+  hasAuthor: boolean;
+  datePublished: boolean;
+  dateModified: boolean;
+};
+
+/**
+ * Walk every JSON-LD graph on the page once and take everything we need from it.
+ *
+ * Authorship and dateline come out of the same traversal as the type list because they
+ * are free once the graph is already in hand, and because an answer engine deciding
+ * whether to cite a page weighs "who wrote this and when" at least as heavily as "what
+ * kind of thing is it".
+ */
+function extractJsonLd(html: string): JsonLdSummary {
+  const out: JsonLdSummary = { types: [], hasAuthor: false, datePublished: false, dateModified: false };
   const blocks = html.matchAll(
     /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
   );
+
+  const nonEmpty = (v: unknown) =>
+    v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
 
   for (const m of blocks) {
     let parsed: unknown;
@@ -81,11 +119,34 @@ function extractJsonLdTypes(html: string): string[] {
       const rec = node as Record<string, unknown>;
       if (Array.isArray(rec['@graph'])) queue.push(...(rec['@graph'] as unknown[]));
       const t = rec['@type'];
-      if (typeof t === 'string') types.push(t);
-      else if (Array.isArray(t)) for (const x of t) if (typeof x === 'string') types.push(x);
+      if (typeof t === 'string') out.types.push(t);
+      else if (Array.isArray(t)) for (const x of t) if (typeof x === 'string') out.types.push(x);
+
+      if (nonEmpty(rec['author']) || nonEmpty(rec['creator'])) out.hasAuthor = true;
+      if (nonEmpty(rec['datePublished'])) out.datePublished = true;
+      if (nonEmpty(rec['dateModified'])) out.dateModified = true;
     }
   }
-  return types;
+  return out;
+}
+
+/**
+ * robots.txt directives that are not access rules.
+ *
+ * Both of these are read from bytes the probe already fetched, so they cost nothing, and
+ * both describe something the binary allow/deny model cannot express.
+ *
+ *  - `License:` is RSL 1.0. The operator is pointing at machine-readable licence terms
+ *    rather than refusing, which is a third answer to "may an AI read this".
+ *  - `Content-Signal:` is granular consent, e.g. `search=yes,ai-train=no,use=reference`.
+ *    Cloudflare writes it into managed robots.txt, so tracking its spread measures the
+ *    same thing this index keeps finding: the edge network is setting the policy.
+ */
+function extractRobotsDirectives(body: string): { licenseUrl: string | null; contentSignal: string | null } {
+  const licenseUrl = body.match(/^[ \t]*license[ \t]*:[ \t]*(\S+)/im)?.[1]?.slice(0, 300) ?? null;
+  const contentSignal =
+    body.match(/^[ \t]*content-signal[ \t]*:[ \t]*([^\r\n#]+)/im)?.[1]?.trim().slice(0, 200) || null;
+  return { licenseUrl, contentSignal };
 }
 
 function validateLlmsTxt(txt: string): { specValid: boolean; issues: string[]; linkCount: number } {
@@ -138,7 +199,7 @@ function looksLikeAutoSubmitChallenge(html: string, textLength: number): boolean
 
 type ControlState = Observation['control'];
 
-function detectChallenge(res: FetchOutcome, textLength: number): ControlState {
+export function detectChallenge(res: FetchOutcome, textLength: number): ControlState {
   // 402 is not a failure. Cloudflare's pay-per-crawl and equivalent gateways answer an
   // unpaid agent with Payment Required, so this is a live, monetised access policy.
   if (res.status === 402) {
@@ -161,10 +222,74 @@ function detectChallenge(res: FetchOutcome, textLength: number): ControlState {
   if (looksLikeAutoSubmitChallenge(res.body, textLength)) {
     return challenge('Auto-submitting interstitial with no readable content');
   }
+
+  /**
+   * The soft wall. Last, so a stub carrying a vendor fingerprint is still reported by
+   * vendor rather than by this generic rule.
+   *
+   * amazon.com answers our crawler with HTTP 200, 2,167 bytes, a `&nbsp;` title and zero
+   * extractable text. Nothing above catches it, so every body-derived line was charged to
+   * Amazon as a failure and the site scored 8 out of 100. Twenty regional Amazon domains
+   * did the same thing and took over the bottom of the leaderboard. That is a lie about
+   * Amazon, and it is exactly what design rule 3 exists to prevent.
+   *
+   * Both conditions are required and both are tight. A real JavaScript application ships a
+   * large shell: tiktok.com sends 362KB with 22 characters of text, does not trip this, and
+   * is correctly scored zero for server-side readability. A document under 5KB containing
+   * under 100 characters of text is not a homepage that was served to us.
+   *
+   * Restricted to non-error responses. A tiny 404 body means there is no site here, which
+   * is a reachability fact and is handled by the caller.
+   */
+  if (res.status < 400 && res.bytes < STUB_MAX_BYTES && textLength < STUB_MAX_TEXT) {
+    return {
+      challenged: true,
+      reason: `The homepage answered HTTP ${res.status} with ${res.bytes.toLocaleString()} bytes and no extractable text. That is a stub served to our crawler, not a page, so nothing derived from it is charged to the site.`,
+      kind: 'unreadable',
+    };
+  }
+
   return { challenged: false, reason: null, kind: 'none' };
 }
 
 const LANDMARK_TAGS = ['main', 'nav', 'header', 'footer', 'article', 'aside'];
+
+type Signals = NonNullable<Observation['signals']>;
+
+/** Every probe-3 signal in its "we looked and found nothing" state. */
+function blankSignals(): Signals {
+  return {
+    licenseUrl: null,
+    licenseLink: false,
+    contentSignal: null,
+    crawlerPrice: null,
+    agentCard: false,
+    agentCardBytes: 0,
+    datePublished: false,
+    dateModified: false,
+    hasAuthor: false,
+    h2Count: 0,
+    h3Count: 0,
+    listCount: 0,
+    tableCount: 0,
+    textRatio: 0,
+  };
+}
+
+/** A well-known endpoint that answered 200 with a JSON object rather than a web page. */
+function servedAsJson(res: FetchOutcome): boolean {
+  if (res.status !== 200) return false;
+  const t = res.body.trim();
+  if (!t.startsWith('{') && !t.startsWith('[')) return false;
+  try {
+    JSON.parse(t);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const count = (html: string, re: RegExp) => (html.match(re) ?? []).length;
 
 export function tldOf(domain: string): string {
   const parts = domain.split('.');
@@ -224,6 +349,7 @@ export async function probeDomain(domain: string): Promise<Observation> {
       canonical: false,
       metaNoindex: false,
     },
+    signals: blankSignals(),
     stack: { platform: null, network: null, server: null },
     security: { hsts: false, csp: false, xContentTypeOptions: false },
     ...obs,
@@ -245,6 +371,10 @@ export async function probeDomain(domain: string): Promise<Observation> {
   }
 
   const robotsParsed: ParsedRobots = servedAsText(robotsRes) ? parseRobots(robotsRes.body) : EMPTY_ROBOTS;
+  // Free: the bytes are already here, and these say things allow/deny cannot.
+  const robotsDirectives = robotsParsed.present
+    ? extractRobotsDirectives(robotsRes.body)
+    : { licenseUrl: null, contentSignal: null };
 
   const crawlDelayMatch = robotsRes.body.match(/^\s*crawl-delay\s*:\s*([\d.]+)/im);
   const robotsSummary: Observation['robots'] = {
@@ -296,6 +426,9 @@ export async function probeDomain(domain: string): Promise<Observation> {
         reason: 'robots.txt disallows all crawlers at the site root, so no page was fetched.',
         kind: 'robots-restricted',
       },
+      // robots.txt is already in hand, so its non-access directives are still observed
+      // even though no page was fetched. Everything body-derived stays blank.
+      signals: { ...blankSignals(), ...robotsDirectives },
     });
   }
 
@@ -346,11 +479,46 @@ export async function probeDomain(domain: string): Promise<Observation> {
   const agentsRes = await politeFetch(`${origin}/agents.md`, { timeoutMs: 8000 });
   const agentsPresent = servedAsText(agentsRes);
 
+  // --- 6. the A2A agent card -----------------------------------------------
+  // The only request added in probe 3. Adoption today is close to zero, which is the
+  // reason to measure it: being able to state the agent-card adoption rate across the top
+  // five thousand domains is a number nobody else has, and the curve is the story.
+  const cardRes = await politeFetch(`${origin}/.well-known/agent-card.json`, { timeoutMs: 8000 });
+  const cardPresent = servedAsJson(cardRes);
+
   // --- derive ---------------------------------------------------------------
   const landmarks = LANDMARK_TAGS.filter((t) => new RegExp(`<${t}[\\s>]`, 'i').test(html));
   const imgTags = html.match(/<img\b[^>]*>/gi) ?? [];
-  const jsonLdTypes = extractJsonLdTypes(html);
+  const ld = extractJsonLd(html);
+  const jsonLdTypes = ld.types;
   const metaRobots = html.match(/<meta[^>]+name=["']robots["'][^>]+content=["']([^"']+)["']/i)?.[1] ?? '';
+
+  const signals: Signals = {
+    ...robotsDirectives,
+    licenseLink: /<link[^>]+rel=["'][^"']*\blicense\b[^"']*["']/i.test(html),
+    crawlerPrice: (home.headers['crawler-price'] ?? botRes.headers['crawler-price'] ?? '').slice(0, 80) || null,
+    agentCard: cardPresent,
+    agentCardBytes: cardPresent ? cardRes.bytes : 0,
+
+    // A dateline can be declared three ways and any of them is machine-readable.
+    datePublished:
+      ld.datePublished ||
+      /<meta[^>]+property=["']article:published_time["']/i.test(html) ||
+      /<time[^>]+datetime=/i.test(html),
+    dateModified:
+      ld.dateModified ||
+      /<meta[^>]+property=["']article:modified_time["']/i.test(html),
+    hasAuthor:
+      ld.hasAuthor ||
+      /<meta[^>]+name=["']author["'][^>]+content=["'][^"']+["']/i.test(html) ||
+      /rel=["'][^"']*\bauthor\b[^"']*["']/i.test(html),
+
+    h2Count: count(html, /<h2[\s>]/gi),
+    h3Count: count(html, /<h3[\s>]/gi),
+    listCount: count(html, /<(ul|ol)[\s>]/gi),
+    tableCount: count(html, /<table[\s>]/gi),
+    textRatio: html.length ? Number((text.length / html.length).toFixed(4)) : 0,
+  };
 
   return base({
     reachable: true,
@@ -397,6 +565,7 @@ export async function probeDomain(domain: string): Promise<Observation> {
       canonical: /<link[^>]+rel=["']canonical["']/i.test(html),
       metaNoindex: /noindex/i.test(metaRobots) || /noindex/i.test(home.headers['x-robots-tag'] ?? ''),
     },
+    signals,
     stack: {
       platform: detectPlatform(html, home.headers),
       network: detectNetwork(home.headers),
