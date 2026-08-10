@@ -20,18 +20,49 @@ export async function GET() {
   const platforms = platformCohorts().slice(0, 5);
   const months = getReportMonths().slice(0, 6);
 
+  /**
+   * Every figure carries its denominator and the measurement date.
+   *
+   * A bare count is unquotable: "445 sites publish an llms.txt" says nothing without the
+   * population it was counted over. The same rule now governs the homepage JSON-LD, and
+   * these sentences are generated from the same snapshot, so the two cannot disagree.
+   */
+  const of = (n: number) => `${n.toLocaleString()} of ${stats!.observed.toLocaleString()} measured sites (${((n / Math.max(1, stats!.observed)) * 100).toFixed(1)}%)`;
+
   const findings = stats
     ? [
         '',
-        `## Current findings (crawl of ${stats.day}, ${stats.observed.toLocaleString()} domains measured)`,
+        `## Current findings`,
         '',
-        `- ${stats.blockingAnyTier1.toLocaleString()} sites block at least one answer-surface AI crawler.`,
-        `- ${stats.blockingAllTier1.toLocaleString()} sites block every answer-surface AI crawler.`,
-        `- ${stats.llmsTxt.toLocaleString()} sites publish an llms.txt.`,
-        `- ${stats.agentsMd.toLocaleString()} sites publish an agents.md.`,
-        `- ${stats.refusedGptbot.toLocaleString()} sites refused or curtailed a request identifying as GPTBot while serving a browser normally. For some, robots.txt already blocks GPTBot, so the server is consistent rather than contradictory. The per-domain endpoint separates the two cases.`,
-        `- ${stats.paymentRequired.toLocaleString()} sites answered an agent with HTTP 402 Payment Required, which is a pay-per-crawl gateway rather than a block.`,
-        `- Mean agent readiness score: ${stats.meanScore ?? 'not available'} out of 100.`,
+        `Crawl of ${stats.day}. Denominator throughout is ${stats.observed.toLocaleString()} domains that could be measured, out of ${stats.totalDomains.toLocaleString()} published records. Sites we could not observe are excluded rather than counted as failures, so do not treat the difference as sites that failed.`,
+        ...(stats.suspect
+          ? ['', `NOTE: the most recent run was quarantined as implausible. These figures are from ${stats.day}, the last crawl that passed a health check.`]
+          : []),
+        '',
+        `- ${of(stats.blockingAnyTier1)} block at least one answer-surface AI crawler.`,
+        `- ${of(stats.blockingAllTier1)} block every answer-surface AI crawler.`,
+        ...(stats.policyGaps !== undefined
+          ? [
+              `- ${of(stats.policyGaps)} permit GPTBot in robots.txt and then refuse a request from GPTBot at the server. Their published policy is not the one being enforced.`,
+            ]
+          : []),
+        `- ${of(stats.llmsTxt)} publish an llms.txt.`,
+        `- ${of(stats.agentsMd)} publish an agents.md.`,
+        `- ${of(stats.refusedGptbot)} refused or curtailed a request identifying as GPTBot while serving a browser normally. For some, robots.txt already blocks GPTBot, so the server is consistent rather than contradictory. The per-domain endpoint separates the two cases.`,
+        `- ${of(stats.paymentRequired)} answered an agent with HTTP 402 Payment Required, which is a pay-per-crawl gateway rather than a block.`,
+        `- Mean agent readiness score: ${stats.meanScore ?? 'not available'} out of 100, across the ${stats.observed.toLocaleString()} measured sites.`,
+        ...(stats.perPosture
+          ? [
+              '',
+              `Of those, ${(stats.perPosture.inherited ?? 0).toLocaleString()} have a robots.txt naming no AI crawler and ${(stats.perPosture.absent ?? 0).toLocaleString()} have no robots.txt at all, against ${(stats.perPosture.deliberate ?? 0).toLocaleString()} that name at least one. For most of the web the AI policy is a default rather than a decision.`,
+            ]
+          : []),
+        ...(stats.signalsObserved === 0
+          ? [
+              '',
+              'Licence declarations, Content-Signal, agent cards, datelines and authorship are measured from probe 3 onward and have not been observed yet. They are absent from this file rather than reported as zero, because nobody has asked.',
+            ]
+          : []),
       ]
     : [];
 

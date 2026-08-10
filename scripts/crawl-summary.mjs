@@ -43,6 +43,33 @@ const delta = (now, before, label) => {
 
 const lines = [];
 
+// A quarantine is not a failure, so the job stays green and this is the only place a human
+// will see it. Put it first, before any figure it is telling you not to trust.
+if (stats?.suspect) {
+  lines.push(
+    '> [!WARNING]',
+    '> **This run was quarantined and its figures are not published.**',
+    '>',
+    '> The observations below were still written, because they are the evidence needed to',
+    '> diagnose the problem, but no change records were recorded and this day cannot be',
+    '> sealed into a monthly report. The site is serving the last day that passed.',
+    '>',
+    ...(stats.suspectReasons ?? []).map((r) => `> - ${r}`),
+    '>',
+    '> Re-run the workflow with `force: true` once the cause is understood.',
+    '',
+  );
+}
+
+if (stats?.partial) {
+  lines.push(
+    `> [!NOTE]`,
+    `> Partial pass: ${(stats.crawled ?? 0).toLocaleString()} domains probed, ` +
+      `${(stats.carried ?? 0).toLocaleString()} carried forward from the previous run.`,
+    '',
+  );
+}
+
 if (meta.crawl) {
   lines.push(
     `Crawled ${meta.crawl.attempted.toLocaleString()} domains from \`${meta.vantage}\` in ${Math.round(meta.crawl.durationMs / 1000)}s. ` +

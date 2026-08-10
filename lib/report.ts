@@ -193,11 +193,17 @@ export function getMonthReport(month: string): MonthReport | null {
     series,
     frozen: Boolean(sealed),
     frozenAt: sealed?.frozenAt ?? null,
-    versions: {
-      probe: sealed?.probeVersion ?? PROBE_VERSION,
-      rubric: sealed?.rubricVersion ?? RUBRIC_VERSION,
-      registry: sealed?.registryVersion ?? REGISTRY_VERSION,
-    },
+    /**
+     * Read the versions off the archived record, never off the current constants.
+     *
+     * The fallback only applies to a month still in progress, which genuinely is being
+     * measured by whatever is running now. Applying it to a sealed report would eventually
+     * stamp a historical document with a rubric it was never scored under, which is a
+     * quiet, permanent misattribution: provenance has to come from the evidence.
+     */
+    versions: sealed
+      ? { probe: sealed.probeVersion, rubric: sealed.rubricVersion, registry: sealed.registryVersion }
+      : { probe: PROBE_VERSION, rubric: RUBRIC_VERSION, registry: REGISTRY_VERSION },
     deltas: {
       blockingAnyTier1: last.blockingAnyTier1 - first.blockingAnyTier1,
       llmsTxt: last.llmsTxt - first.llmsTxt,
@@ -224,7 +230,14 @@ export function getMonthReport(month: string): MonthReport | null {
  * describes that month.
  */
 export function buildFrozenReport(month: string, frozenAt: string): FrozenReport | null {
-  const days = allStats().filter((s) => s.day.startsWith(month));
+  /**
+   * Quarantined days never enter a seal.
+   *
+   * This is the single most important consumer of the health gate. Everything else a bad
+   * night touches can be corrected by re-crawling; a sealed report is by design never
+   * rewritten, so a suspect day allowed in here becomes permanently wrong.
+   */
+  const days = allStats().filter((s) => s.day.startsWith(month) && !s.suspect);
   if (!days.length) return null;
 
   return {

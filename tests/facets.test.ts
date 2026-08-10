@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AGENTS, TIER1 } from '../lib/agents';
 import { accessArchetype, percentileOf, policyGap, policyPosture } from '../lib/facets';
 import { brandLabel, groupByEntity, groupSize } from '../lib/entities';
-import { badgeTier, isEmbeddable, badgeTitle, renderBadge } from '../lib/badge';
+import { badgeTier, isEmbeddable, badgeTitle, renderBadge, BADGE_THEMES, badgeSlug, parseBadgeSlug } from '../lib/badge';
 import type { DomainRow } from '../lib/dataset';
 import type { Observation } from '../lib/types';
 
@@ -238,21 +238,75 @@ describe('the badge is an award', () => {
     expect(isEmbeddable(badgeTier(null, null))).toBe(false);
   });
 
-  it('renders valid, self-contained SVG with no external reference', () => {
+  it('renders valid, self-contained SVG in every variant and theme', () => {
     const input = { domain: 'example.com', score: 92, grade: 'A', percentile: 97, measuredOn: '2026-08-10', partial: false };
     for (const variant of ['flat', 'seal', 'card'] as const) {
-      const svg = renderBadge(variant, input);
-      expect(svg.startsWith('<svg')).toBe(true);
-      expect(svg.trimEnd().endsWith('</svg>')).toBe(true);
-      // A mark embedded on someone else's page must fetch nothing and run nothing. The
-      // xmlns declaration is a namespace identifier, not a request, so it is exempt.
-      const withoutNamespace = svg.replace(/xmlns="[^"]*"/g, '');
-      expect(withoutNamespace).not.toMatch(/https?:\/\//);
-      expect(svg).not.toMatch(/<(script|image|foreignObject)\b/i);
-      expect(svg).not.toMatch(/@import|url\(/i);
-      expect(svg).toContain('role="img"');
-      expect(svg).toContain('<title>');
+      for (const theme of BADGE_THEMES) {
+        const svg = renderBadge(variant, input, theme);
+        const where = `${variant}/${theme}`;
+        expect(svg.startsWith('<svg'), where).toBe(true);
+        expect(svg.trimEnd().endsWith('</svg>'), where).toBe(true);
+        // A mark embedded on someone else's page must fetch nothing and run nothing. The
+        // xmlns declaration is a namespace identifier, not a request, so it is exempt.
+        const withoutNamespace = svg.replace(/xmlns="[^"]*"/g, '');
+        expect(withoutNamespace, where).not.toMatch(/https?:\/\//);
+        expect(svg, where).not.toMatch(/<(script|image|foreignObject)\b/i);
+        expect(svg, where).not.toMatch(/@import|url\(/i);
+        expect(svg, where).toContain('role="img"');
+        expect(svg, where).toContain('<title>');
+      }
     }
+  });
+
+  /** The complaint that prompted the rebuild: the wordmark was illegible and unbranded. */
+  it('carries a legible two-tone wordmark in the site’s own treatment', () => {
+    const input = { domain: 'example.com', score: 92, grade: 'A', percentile: 97, measuredOn: '2026-08-10', partial: false };
+    for (const variant of ['flat', 'seal', 'card'] as const) {
+      const svg = renderBadge(variant, input, 'light');
+      expect(svg, variant).toContain('crawl<tspan');
+      expect(svg, variant).toContain('>index</tspan>');
+      // The rust accent, same value as the site header. The old mark was flat grey.
+      expect(svg, variant).toContain('#a33d17');
+      // Big enough to read. The old one was 8px.
+      const size = Number(svg.match(/font-size="(\d+(?:\.\d+)?)"[^>]*font-weight="700"[^>]*>crawl/)?.[1] ?? 0);
+      expect(size, `${variant} wordmark size`).toBeGreaterThanOrEqual(14);
+    }
+  });
+
+  it('pins the palette when a theme is chosen, and defers when it is auto', () => {
+    const input = { domain: 'example.com', score: 92, grade: 'A', percentile: 97, measuredOn: '2026-08-10', partial: false };
+    const light = renderBadge('flat', input, 'light');
+    const dark = renderBadge('flat', input, 'dark');
+    const auto = renderBadge('flat', input, 'auto');
+
+    // Pinned themes are literal hex with no media query to second-guess them.
+    expect(light).not.toContain('prefers-color-scheme');
+    expect(dark).not.toContain('prefers-color-scheme');
+    expect(light).toContain('#fbfaf7');
+    expect(dark).toContain('#17150f');
+    expect(light).not.toBe(dark);
+
+    // Auto ships both palettes and lets the viewer's setting choose.
+    expect(auto).toContain('prefers-color-scheme:dark');
+    expect(auto).toContain('#fbfaf7');
+    expect(auto).toContain('#17150f');
+  });
+
+  it('round-trips the theme through the filename', () => {
+    // Theme rides in the slug because a [theme] route segment would collide with [slug],
+    // which builds fine and then 500s every route on the site.
+    for (const theme of BADGE_THEMES) {
+      const slug = badgeSlug('example.co.uk', theme);
+      expect(parseBadgeSlug(slug)).toEqual({ domain: 'example.co.uk', theme });
+    }
+    expect(badgeSlug('example.com', 'auto')).toBe('example.com.svg');
+    expect(badgeSlug('example.com', 'dark')).toBe('example.com.dark.svg');
+  });
+
+  it('does not mistake a domain that ends in a theme word', () => {
+    // `light.com` must not parse as the light theme of a domain called "".
+    expect(parseBadgeSlug('light.com.svg')).toEqual({ domain: 'light.com', theme: 'auto' });
+    expect(parseBadgeSlug('dark.svg')).toEqual({ domain: 'dark', theme: 'auto' });
   });
 
   it('escapes a hostile domain rather than injecting it', () => {

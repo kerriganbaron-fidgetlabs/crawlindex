@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { callerKey, isProbeTarget, rateLimit } from '../../lib/guard';
 import { TIER1 } from '../../lib/agents';
 import { badgeTier, isEmbeddable, TIER_NAME } from '../../lib/badge';
 import { getDomain, scoredRows } from '../../lib/dataset';
@@ -16,12 +18,21 @@ import { networkLabel, platformLabel } from '../../lib/fingerprints';
 import { isValidDomain, normaliseDomain } from '../../lib/http';
 import { probeDomain } from '../../lib/probe';
 import { scoreObservation } from '../../lib/score';
+import { SITE } from '../../lib/site';
 import { PageHeader, ScoreChip } from '../../components/ui';
 import { BandBars, Histogram } from '../../components/charts';
 import { scoreHistogram } from '../../lib/dataset';
 
-// Five outbound requests, each with its own timeout. The only route on the site that is
-// not a static file, because it measures something that does not exist yet.
+/**
+ * Six outbound requests, each with its own timeout, serialised by the per-host politeness
+ * gate. The only route on the site that is not a static file, because it measures something
+ * that does not exist yet.
+ *
+ * The arithmetic does not close on its own: six timeouts plus gating can exceed this
+ * ceiling against a tarpitting origin, which would produce a bare Vercel 504 with no
+ * explanation. `probeDomain` is therefore given a deadline below `maxDuration` and returns
+ * what it has when it runs out. See `PROBE_BUDGET_MS`.
+ */
 export const maxDuration = 60;
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,22 +51,45 @@ export default async function CheckPage({ searchParams }: Props) {
   const domain = raw ? normaliseDomain(raw) : null;
   const valid = domain ? isValidDomain(domain) : false;
 
-  // Anything already in the nightly index gets the permanent page, with its history.
+  // Anything already in the nightly index gets the permanent page, with its history. Free,
+  // and it happens before any guard, because serving a static page costs nothing.
   if (domain && valid && getDomain(domain)) redirect(`/site/${domain}`);
+
+  /**
+   * Guards, in order of cost. This is the only route that fires outbound requests on an
+   * anonymous caller's instruction, so it has to refuse two things before it does that.
+   */
+  let blocked: string | null = null;
+  if (domain && valid) {
+    const target = isProbeTarget(domain);
+    if (!target.allowed) {
+      blocked = target.reason ?? 'That target cannot be probed.';
+    } else {
+      const limit = rateLimit(callerKey(await headers()));
+      if (!limit.allowed) {
+        blocked = `Too many live checks from this address. Try again in ${limit.retryAfterSeconds} seconds. The nightly index and the whole dataset are free and unlimited; this one route is rate limited because each check makes six requests to somebody else's server.`;
+      }
+    }
+  }
 
   return (
     <>
       <PageHeader
         kicker="Live check"
         title="Measure any domain"
-        lede="Runs the same requests the nightly crawler makes and scores the result with the same rubric. Nothing is stored: only domains from the Tranco ranking are permanently indexed."
+        lede="Runs the same requests the nightly crawler makes and scores the result with the same rubric. Nothing is stored, and adding a domain to the nightly index is a separate, deliberate step."
       />
 
-      <form method="get" action="/check" className="mb-10 flex flex-wrap gap-3 items-end">
-        <div className="flex-1 min-w-64">
-          <label htmlFor="domain" className="block text-sm font-medium mb-1">
-            Domain
-          </label>
+      {/*
+        The hint used to live inside the input's flex child while the row was `items-end`,
+        so the button aligned to the bottom of the hint rather than to the input and sat
+        visibly low. Input and button are now their own row and the hint sits under both.
+      */}
+      <form method="get" action="/check" className="mb-10 max-w-xl">
+        <label htmlFor="domain" className="block text-sm font-medium mb-1">
+          Domain
+        </label>
+        <div className="flex flex-wrap gap-3">
           <input
             id="domain"
             name="domain"
@@ -66,18 +100,18 @@ export default async function CheckPage({ searchParams }: Props) {
             defaultValue={domain ?? ''}
             placeholder="example.com"
             aria-describedby="domain-hint"
-            className="w-full border border-rule rounded px-3 py-2 bg-paper text-ink font-mono"
+            className="flex-1 min-w-56 border border-rule rounded px-3 py-2 bg-paper text-ink font-mono"
           />
-          <p id="domain-hint" className="text-xs text-muted mt-1">
-            Just the hostname. Takes a few seconds.
-          </p>
+          <button
+            type="submit"
+            className="border-2 border-accent text-accent font-medium rounded px-5 py-2 hover:bg-accent-soft shrink-0"
+          >
+            Measure it
+          </button>
         </div>
-        <button
-          type="submit"
-          className="border-2 border-accent text-accent font-medium rounded px-5 py-2 hover:bg-accent-soft"
-        >
-          Measure it
-        </button>
+        <p id="domain-hint" className="text-xs text-muted mt-2">
+          Just the hostname. Takes a few seconds, and nothing is stored.
+        </p>
       </form>
 
       {raw && !valid ? (
@@ -86,14 +120,28 @@ export default async function CheckPage({ searchParams }: Props) {
         </p>
       ) : null}
 
-      {domain && valid ? <Result domain={domain} /> : null}
+      {blocked ? (
+        <p role="alert" className="border-l-4 border-bad bg-raised p-4">
+          {blocked}
+        </p>
+      ) : null}
+
+      {domain && valid && !blocked ? <Result domain={domain} /> : null}
     </>
   );
 }
 
+/**
+ * Leaves headroom under `maxDuration` for scoring, rendering and the platform's own
+ * overhead. Overrunning would produce a bare 504; stopping early produces a partial
+ * measurement that says which checks it did not get to, which is a better answer.
+ */
+const PROBE_BUDGET_MS = 45_000;
+
 async function Result({ domain }: { domain: string }) {
-  const obs = await probeDomain(domain);
+  const obs = await probeDomain(domain, { deadlineMs: PROBE_BUDGET_MS });
   const score = scoreObservation(obs);
+  const skipped = obs.signals?.skippedChecks ?? [];
 
   if (obs.optedOut) {
     return (
@@ -166,6 +214,20 @@ async function Result({ domain }: { domain: string }) {
           <Histogram buckets={scoreHistogram()} markAt={score.total} markLabel="Where this sits" />
         ) : null}
       </div>
+
+      {skipped.length ? (
+        <div className="border-l-4 border-warn bg-raised p-4 mb-8">
+          <h3 className="font-semibold mb-1">This check ran out of time</h3>
+          <p className="text-sm">
+            {domain} responded slowly enough that {skipped.length} check
+            {skipped.length === 1 ? '' : 's'} were not made:{' '}
+            <span className="font-mono">{skipped.join(', ')}</span>. Those are excluded from the
+            score rather than counted as missing, because they are a fact about our deadline and
+            not about the site. The nightly crawler has no such limit, so an indexed domain is
+            always measured in full.
+          </p>
+        </div>
+      ) : null}
 
       {gap.gap ? (
         <div className="border-l-4 border-bad bg-raised p-4 mb-8">
@@ -248,8 +310,37 @@ async function Result({ domain }: { domain: string }) {
         ))}
       </ul>
 
-      <p className="text-sm text-muted">
-        Measured just now, live, and not stored. See the{' '}
+      {/*
+        The obvious question a reader has at this point, answered rather than left implicit.
+        Auto-storing every checked domain would be easy and would quietly destroy the
+        corpus: the population has to be defined and reproducible for any aggregate on the
+        rest of the site to mean anything.
+      */}
+      <section className="border border-rule rounded p-5 bg-raised">
+        <h3 className="font-bold mb-1">Want this measured every night?</h3>
+        <p className="text-sm text-muted mb-4 max-w-2xl leading-relaxed">
+          This result is not stored. The index is a defined population, the most-visited domains
+          plus anything explicitly submitted, and it has to stay that way for any percentage on the
+          rest of the site to mean something. Quietly adding every domain anybody typed would let
+          one person reshape the denominator of every published figure. So adding one is a
+          deliberate act with a public audit trail, and it takes a single click.
+        </p>
+        <p className="flex flex-wrap gap-3 items-center">
+          <a
+            href={`${SITE.repo}/issues/new?template=add-domain.yml&title=${encodeURIComponent(`Add domain: ${domain}`)}`}
+            className="inline-block border-2 border-accent text-accent font-medium rounded px-4 py-2 hover:bg-accent-soft text-sm"
+          >
+            Add {domain} to the index
+          </a>
+          <span className="text-xs text-muted">
+            Opens a prefilled GitHub issue. Measured on tonight&apos;s crawl, then it gets a
+            permanent page and a change history.
+          </span>
+        </p>
+      </section>
+
+      <p className="text-sm text-muted mt-6">
+        Measured just now, live. See the{' '}
         <Link href="/methodology" className="text-accent underline underline-offset-4">
           methodology
         </Link>{' '}
@@ -257,11 +348,7 @@ async function Result({ domain }: { domain: string }) {
         <Link href="/glossary" className="text-accent underline underline-offset-4">
           glossary
         </Link>{' '}
-        for what the terms mean.{' '}
-        <Link href="/submit" className="text-accent underline underline-offset-4">
-          Add this domain to the nightly index
-        </Link>{' '}
-        to give it a permanent page and a change history.
+        for what the terms mean.
       </p>
     </section>
   );

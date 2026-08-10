@@ -4,5 +4,5 @@ import { badgeRoute } from '../../../../lib/badge-route';
 export const dynamic = 'force-static';
 export const dynamicParams = false;
 
-const { generateStaticParams, GET } = badgeRoute('card');
+const { generateStaticParams, GET } = badgeRoute('card', 'award');
 export { generateStaticParams, GET };

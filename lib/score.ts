@@ -149,6 +149,16 @@ export function scoreObservation(obs: Observation): Score {
   // Every line reading this group checks it, and none of them substitutes a zero.
   const sig = obs.signals;
 
+  /**
+   * Paths a deadline-bounded run gave up on. Only `/check` produces these.
+   *
+   * A check we ran out of time to make is unobserved, not absent. Scoring `/llms.txt` as
+   * missing because we stopped asking would charge the site for our own timeout, which is
+   * the same rule that stops a bot wall being charged to the site.
+   */
+  const skipped = new Set(sig?.skippedChecks ?? []);
+  const wasSkipped = (path: string) => skipped.has(path);
+
   // One phrase for why the body cannot be read, so fourteen score lines cannot drift into
   // telling a reader two different stories about the same request.
   const wall = !stub
@@ -227,7 +237,9 @@ export function scoreObservation(obs: Observation): Score {
   // A WAF that challenges the homepage challenges these paths too, so a miss here would
   // be our failure, not theirs.
   const surfaceDetail = (present: boolean, path: string) =>
-    !bodyTrusted
+    wasSkipped(path)
+      ? `Not assessed. This check ran out of time before ${path} could be requested, so it is excluded rather than counted as missing.`
+      : !bodyTrusted
       ? `Not assessed. ${path} could not be read cleanly, because ${wall}.`
       : present
         ? `${path} is served.`
@@ -240,8 +252,10 @@ export function scoreObservation(obs: Observation): Score {
     label: 'llms.txt published',
     earned: obs.llmsTxt.present ? (obs.llmsTxt.specValid ? 9 : 6) : 0,
     max: 9,
-    available: bodyTrusted,
-    detail: !bodyTrusted
+    available: bodyTrusted && !wasSkipped('/llms.txt'),
+    detail: wasSkipped('/llms.txt')
+      ? 'Not assessed. This check ran out of time before it could be requested, so it is excluded rather than counted as missing.'
+      : !bodyTrusted
       ? `Not assessed. /llms.txt could not be read cleanly, because ${wall}.`
       : !obs.llmsTxt.present
         ? 'No /llms.txt.'
@@ -254,7 +268,7 @@ export function scoreObservation(obs: Observation): Score {
     label: 'agents.md published',
     earned: obs.agentsMd.present ? 4 : 0,
     max: 4,
-    available: bodyTrusted,
+    available: bodyTrusted && !wasSkipped('/agents.md'),
     detail: surfaceDetail(obs.agentsMd.present, '/agents.md'),
   });
 
@@ -300,8 +314,10 @@ export function scoreObservation(obs: Observation): Score {
     label: 'Agent card published',
     earned: sig?.agentCard ? 1 : 0,
     max: 1,
-    available: Boolean(sig) && bodyTrusted,
-    detail: !sig
+    available: Boolean(sig) && bodyTrusted && !wasSkipped('/.well-known/agent-card.json'),
+    detail: wasSkipped('/.well-known/agent-card.json')
+      ? 'Not assessed. This check ran out of time before it could be requested.'
+      : !sig
       ? 'Not assessed. This record predates the agent card check.'
       : !bodyTrusted
         ? `Not assessed. /.well-known/agent-card.json could not be read cleanly, because ${wall}.`

@@ -2,17 +2,20 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { TIER1 } from '../../lib/agents';
 import {
-  countPolicyGaps,
-  countWithSignal,
-  facetCounts,
   latestStats,
   networkCohorts,
-  observedRows,
   platformCohorts,
   policyGaps,
   tldCohorts,
 } from '../../lib/dataset';
-import { ARCHETYPE_BLURB, ARCHETYPE_LABEL, POSTURE_BLURB, POSTURE_LABEL } from '../../lib/facets';
+import {
+  ARCHETYPE_BLURB,
+  ARCHETYPE_LABEL,
+  POSTURE_BLURB,
+  POSTURE_LABEL,
+  type AccessArchetype,
+  type PolicyPosture,
+} from '../../lib/facets';
 import { Attribution, CohortTable, DomainTable, PageHeader, PageMeta } from '../../components/ui';
 import { PolicyQuadrant, RankedBars, UnitChart } from '../../components/charts';
 import { Reveal } from '../../components/motion';
@@ -28,45 +31,48 @@ export const metadata: Metadata = {
 const pct = (n: number, d: number) => (d === 0 ? 0 : (n / d) * 100);
 const pctStr = (n: number, d: number) => `${pct(n, d).toFixed(1)}%`;
 
+/**
+ * Same sourcing rule as the homepage: every dated finding comes from the daily snapshot, so
+ * the two pages cannot quote different numbers for the same claim. Cohort tables and the
+ * example lists stay live, because they are views rather than findings.
+ */
 export default function FindingsPage() {
   const stats = latestStats();
-  const rows = observedRows();
-  const total = rows.length;
-  const observed = stats?.observed ?? total;
+  const observed = stats?.observed ?? 0;
+  // The denominator for every percentage on this page. One population, one date.
+  const total = observed;
 
-  const gaps = countPolicyGaps();
+  const gaps = stats?.policyGaps ?? 0;
   const gapExamples = policyGaps(25);
+  const quadrant = stats?.quadrant ?? { gap: 0, openHonest: 0, blockedHonest: 0, declaredOnly: 0 };
 
-  const quadrant = {
-    gap: gaps,
-    openHonest: rows.filter((r) => r.obs.access['GPTBot'] !== false && !r.gap.gap).length,
-    blockedHonest: rows.filter((r) => r.obs.access['GPTBot'] === false && r.obs.cloaking.botStatus >= 400).length,
-    declaredOnly: rows.filter(
-      (r) =>
-        r.obs.access['GPTBot'] === false &&
-        r.obs.cloaking.tested &&
-        r.obs.cloaking.botStatus > 0 &&
-        r.obs.cloaking.botStatus < 400,
-    ).length,
-  };
+  const postures = Object.entries(stats?.perPosture ?? {})
+    .map(([id, count]) => ({ id: id as PolicyPosture, count }))
+    .sort((a, b) => b.count - a.count);
+  const archetypes = Object.entries(stats?.perArchetype ?? {})
+    .map(([id, count]) => ({ id: id as AccessArchetype, count }))
+    .sort((a, b) => b.count - a.count);
 
-  const postures = facetCounts((r) => r.posture);
-  const archetypes = facetCounts((r) => r.archetype);
   const networks = networkCohorts().slice(0, 10);
   const platforms = platformCohorts().slice(0, 10);
   const tlds = tldCohorts().slice(0, 10);
 
-  // The emerging-standards count. Mostly zeros today, which is the finding.
-  const withLicence = countWithSignal((o) => Boolean(o.signals?.licenseUrl || o.signals?.licenseLink));
-  const withSignal = countWithSignal((o) => Boolean(o.signals?.contentSignal));
-  const withCard = countWithSignal((o) => Boolean(o.signals?.agentCard));
-  const withDateline = countWithSignal((o) => Boolean(o.signals?.datePublished || o.signals?.dateModified));
-  const withAuthor = countWithSignal((o) => Boolean(o.signals?.hasAuthor));
-  const anySignals = rows.some((r) => r.obs.signals);
+  /**
+   * Emerging-standards adoption. `signalsObserved` is the denominator and it is doing real
+   * work: a null count means the probe of the day never looked, which is a different fact
+   * from nobody publishing them. Rendering both as 0% would be rule 2 with the sign flipped.
+   */
+  const signalsObserved = stats?.signalsObserved ?? 0;
+  const anySignals = signalsObserved > 0;
+  const withLicence = stats?.declaredLicence ?? null;
+  const withSignal = stats?.contentSignal ?? null;
+  const withCard = stats?.agentCard ?? null;
+  const withDateline = stats?.dateline ?? null;
+  const withAuthor = stats?.authorship ?? null;
 
-  const inherited = postures.find((p) => p.id === 'inherited')?.count ?? 0;
-  const deliberate = postures.find((p) => p.id === 'deliberate')?.count ?? 0;
-  const absent = postures.find((p) => p.id === 'absent')?.count ?? 0;
+  const inherited = stats?.perPosture?.inherited ?? 0;
+  const deliberate = stats?.perPosture?.deliberate ?? 0;
+  const absent = stats?.perPosture?.absent ?? 0;
 
   return (
     <>
@@ -251,35 +257,65 @@ export default function FindingsPage() {
             </p>
           </div>
 
-          {anySignals ? (
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {[
-                ['llms.txt', stats?.llmsTxt ?? 0, 'llms-txt'],
-                ['agents.md', stats?.agentsMd ?? 0, 'agents-md'],
-                ['Agent card', withCard, 'agent-card'],
-                ['Machine-readable licence', withLicence, 'rsl'],
-                ['Content-Signal', withSignal, 'content-signal'],
-                ['A dateline', withDateline, 'score'],
-              ].map(([label, n, termId]) => (
+          {/*
+            Each row carries its own denominator, because they genuinely differ. llms.txt and
+            agents.md have been measured on every record since the first crawl; the probe-3
+            signals only exist on records taken by a probe that looked for them. Dividing
+            both by the same number would be the exact defect this release fixed elsewhere.
+          */}
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {(
+              [
+                ['llms.txt', stats?.llmsTxt ?? null, observed],
+                ['agents.md', stats?.agentsMd ?? null, observed],
+                ['Agent card', withCard, signalsObserved],
+                ['Machine-readable licence', withLicence, signalsObserved],
+                ['Content-Signal', withSignal, signalsObserved],
+                ['A dateline', withDateline, signalsObserved],
+              ] as Array<[string, number | null, number]>
+            ).map(([label, n, base]) =>
+              n === null || base === 0 ? (
+                <figure key={label} className="m-0 border border-rule rounded p-4">
+                  <figcaption className="text-sm font-medium">{label}</figcaption>
+                  <p className="text-xs text-muted mt-1 leading-snug">
+                    Not measured yet. This check was added in probe 3 and appears after the next
+                    nightly crawl. Shown as unmeasured rather than as zero, because nobody has
+                    asked.
+                  </p>
+                </figure>
+              ) : (
                 <UnitChart
-                  key={label as string}
-                  percent={pct(n as number, observed)}
-                  label={String(label)}
-                  sub={`${(n as number).toLocaleString()} of ${observed.toLocaleString()} sites (${pctStr(n as number, observed)})`}
+                  key={label}
+                  percent={pct(n, base)}
+                  label={label}
+                  sub={`${n.toLocaleString()} of ${base.toLocaleString()} sites (${pctStr(n, base)})`}
                 />
-              ))}
-            </div>
-          ) : (
-            <p className="border border-rule rounded p-4 bg-raised">
-              These signals were added in probe 3 and appear here after the next nightly crawl. They
-              are shown as unmeasured rather than as zero, because we have not asked yet.
+              ),
+            )}
+          </div>
+
+          {!anySignals ? (
+            <p className="border border-rule rounded p-4 bg-raised mt-4 text-sm">
+              The four probe-3 signals above have not been measured yet. The archived records
+              predate the checks, and inventing a zero for a question that was never asked is the
+              failure this index is built to avoid.
             </p>
-          )}
+          ) : null}
 
           <p className="text-sm text-muted mt-6 max-w-2xl">
-            Declared authorship reaches {pctStr(withAuthor, observed)}. An answer engine deciding
-            whether to quote a page weighs when it was written and who wrote it, and both are
-            cheaper to add than anything else on this list.
+            {withAuthor === null ? (
+              <>
+                Declared authorship is measured from the next crawl onward. An answer engine
+                deciding whether to quote a page weighs when it was written and who wrote it, and
+                both are cheaper to add than anything else on this list.
+              </>
+            ) : (
+              <>
+                Declared authorship reaches {pctStr(withAuthor, signalsObserved)}. An answer engine
+                deciding whether to quote a page weighs when it was written and who wrote it, and
+                both are cheaper to add than anything else on this list.
+              </>
+            )}
           </p>
         </section>
       </Reveal>

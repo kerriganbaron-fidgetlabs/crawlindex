@@ -1,31 +1,54 @@
-import { badgeTier, badgeTitle, isEmbeddable, renderBadge, type BadgeVariant } from './badge';
-import { getDomain, latestStats, scoredRows } from './dataset';
+import {
+  BADGE_THEMES,
+  badgeSlug,
+  badgeTier,
+  badgeTitle,
+  isEmbeddable,
+  parseBadgeSlug,
+  renderBadge,
+  type BadgeVariant,
+} from './badge';
+import { allDomains, getDomain, latestStats, scoredRows } from './dataset';
 import { normaliseDomain } from './http';
 
 /**
- * The shared handler behind the award-mark routes.
+ * The shared handler behind every badge route.
  *
- * Each variant gets its own route directory with a **literal** segment
- * (`/badge/seal/[slug]`, `/badge/card/[slug]`) rather than one shared `[variant]` segment.
- * That is not a stylistic choice: `/badge/[slug]` already exists for the default mark, and
- * Next refuses two differently-named dynamic segments at the same position. The build
- * completes and then every route on the site throws at runtime, which is a fun one to
- * discover in production. A literal segment sits happily beside a dynamic sibling, and it
- * produces exactly the URLs the embed snippets already emit.
+ * ## Two shapes of route, one handler
+ *
+ * `flat` lives at `/badge/<slug>` because that path predates the tiered marks and somebody
+ * may already have embedded it. `seal` and `card` live at `/badge/seal/<slug>` and
+ * `/badge/card/<slug>` with **literal** segments.
+ *
+ * That is not stylistic. `/badge/[slug]` already exists, and Next refuses two
+ * differently-named dynamic segments at the same position. The build completes, and then
+ * every route on the site throws at runtime. This project has shipped that once already.
+ *
+ * ## Theme rides in the filename
+ *
+ * `example.com.svg` is auto, `example.com.light.svg` and `example.com.dark.svg` are pinned.
+ * Same reason: a `[theme]` segment would collide with `[slug]`.
  */
-export function badgeRoute(variant: BadgeVariant) {
+export function badgeRoute(
+  variant: BadgeVariant,
   /**
-   * Only domains that earned a mark. Refusing to mint the file is what makes the award
-   * mean something, and it keeps the build to roughly a thousand files per variant rather
-   * than five thousand nobody would embed.
+   * `award` generates only for grade A and B, which is what makes the mark mean something.
+   * `all` generates for every indexed domain, used by the legacy flat path so an existing
+   * embed keeps resolving whatever the site scores.
    */
-  const generateStaticParams = () =>
-    scoredRows()
-      .filter((r) => isEmbeddable(badgeTier(r.score.total, r.score.grade)))
-      .map((r) => ({ slug: `${r.domain}.svg` }));
+  scope: 'award' | 'all',
+) {
+  const generateStaticParams = () => {
+    const domains =
+      scope === 'all'
+        ? allDomains()
+        : scoredRows().filter((r) => isEmbeddable(badgeTier(r.score.total, r.score.grade)));
+    return domains.flatMap((r) => BADGE_THEMES.map((theme) => ({ slug: badgeSlug(r.domain, theme) })));
+  };
 
   const GET = async (_req: Request, { params }: { params: Promise<{ slug: string }> }) => {
-    const domain = normaliseDomain((await params).slug.replace(/\.svg$/i, ''));
+    const { domain: raw, theme } = parseBadgeSlug((await params).slug);
+    const domain = normaliseDomain(raw);
     const row = getDomain(domain);
 
     const input = {
@@ -37,7 +60,7 @@ export function badgeRoute(variant: BadgeVariant) {
       measuredOn: latestStats()?.day ?? null,
     };
 
-    return new Response(renderBadge(variant, input), {
+    return new Response(renderBadge(variant, input, theme), {
       headers: {
         'content-type': 'image/svg+xml; charset=utf-8',
         'cache-control': 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800',
