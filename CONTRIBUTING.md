@@ -13,6 +13,25 @@ The corollary is that **there is no support**. No support email exists. Issues a
 monitored on any schedule and may never be read. That is not rudeness, it is the deal that
 makes an indefinitely-free public dataset possible.
 
+There is exactly one exception, and it works precisely because no human is involved in it.
+
+## Adding a domain, which is handled automatically
+
+Use the [Add a domain](https://github.com/kerriganbaron-fidgetlabs/crawlindex/issues/new?template=add-domain.yml)
+issue form. The nightly crawl reads every open submission before it starts, validates the
+domain, adds the valid ones to the corpus, measures them on the same run, and closes the
+issue with either a link to the new page or the specific reason it was refused.
+
+Nobody reviews it and nobody approves it, so it happens whether or not anyone is paying
+attention. Two things get refused: something that is not a valid hostname, and
+infrastructure rather than a site (CDN hosts, analytics endpoints, ad exchanges,
+nameservers). The second is a published pattern list in `lib/corpus-rules.ts`, not a
+judgement call, and if it is wrong about a particular domain that is worth saying.
+
+You do not need the site operator's permission. Everything measured is already served
+publicly to every crawler on the internet, and an operator who wants out has the one-line
+mechanism below, which needs nobody's attention either.
+
 ## What you can rely on without anyone answering you
 
 **Removing a domain from the index.** Disallow `CrawlIndexBot` in its robots.txt:

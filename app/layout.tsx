@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { SITE, absoluteUrl } from '../lib/site';
+import { SearchDialog } from '../components/search';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -23,12 +24,14 @@ export const metadata: Metadata = {
   alternates: { canonical: '/' },
 };
 
+// Seven items. Networks and Platforms moved under Findings, which is where a reader
+// arrives wanting the argument rather than the cross-tab.
 const NAV = [
+  { href: '/findings', label: 'Findings' },
   { href: '/leaderboard', label: 'Leaderboard' },
-  { href: '/networks', label: 'Networks' },
-  { href: '/platforms', label: 'Platforms' },
   { href: '/bots', label: 'Crawlers' },
   { href: '/reports', label: 'Reports' },
+  { href: '/badge', label: 'Badge' },
   { href: '/data', label: 'Data' },
   { href: '/methodology', label: 'Method' },
 ];
@@ -95,18 +98,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Skip to main content
         </a>
 
-        <header className="border-b border-rule">
-          <div className="mx-auto max-w-5xl px-4 py-4 flex flex-wrap items-baseline gap-x-6 gap-y-2">
+        <header className="border-b border-rule sticky top-0 z-30 bg-paper/90 backdrop-blur-sm">
+          <div className="mx-auto max-w-5xl px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
             <Link href="/" className="font-mono text-lg font-bold tracking-tight no-underline text-ink">
               crawl<span className="text-accent">index</span>
             </Link>
             <nav aria-label="Primary" className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
               {NAV.map((n) => (
-                <Link key={n.href} href={n.href} className="text-muted hover:text-accent underline-offset-4">
+                <Link key={n.href} href={n.href} className="text-muted hover:text-accent link-draw">
                   {n.label}
                 </Link>
               ))}
             </nav>
+            {/* Five thousand domains and, until now, no way to look one up. */}
+            <div className="ml-auto">
+              <SearchDialog />
+            </div>
           </div>
         </header>
 
@@ -128,7 +135,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </p>
             <p className="flex flex-wrap gap-x-5 gap-y-1">
               <Link href="/methodology" className="hover:text-accent">Methodology</Link>
+              <Link href="/glossary" className="hover:text-accent">Glossary</Link>
+              <Link href="/coverage" className="hover:text-accent">Coverage</Link>
               <Link href="/data" className="hover:text-accent">Dataset</Link>
+              <Link href="/submit" className="hover:text-accent">Add a domain</Link>
+              <Link href="/check" className="hover:text-accent">Check a domain</Link>
               <Link href="/about" className="hover:text-accent">About</Link>
               <Link href="/api" className="hover:text-accent">API</Link>
               <a href="/llms.txt" className="hover:text-accent">llms.txt</a>

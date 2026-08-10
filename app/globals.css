@@ -19,6 +19,13 @@
   --color-accent: #a33d17;
   --color-accent-soft: #f3e6df;
 
+  /*
+    The unfilled cell in a unit chart. Deliberately its own token rather than reusing
+    `rule`: a hairline border colour is far too faint at 12px square, and the empty cells
+    are what make a unit chart read as "of every hundred" instead of a stripe of colour.
+  */
+  --color-cell-empty: #8f8878;
+
   --color-good: #1f6b45;
   --color-warn: #8a5a06;
   --color-bad: #a32020;
@@ -37,6 +44,7 @@
     --color-rule: #302d26;
     --color-accent: #e8875a;
     --color-accent-soft: #2a1f18;
+    --color-cell-empty: #736d60;
 
     --color-good: #6cc396;
     --color-warn: #e0ad51;
@@ -85,6 +93,69 @@ body {
   border-radius: 4px;
 }
 
+/*
+  The crawl sweep on the hero unit chart.
+
+  Cells server-render at their final fill and this only replays that fill left to right,
+  once, on load. Nothing here is load-bearing: with the animation stripped the figure is
+  already correct and already coloured, which is the same rule the motion components follow.
+*/
+@keyframes unit-cell-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.unit-cell {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: unit-cell-in 320ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/*
+  The nightly pulse next to the "updated" line. A quiet, slow signal that this page is a
+  live measurement rather than a static document.
+*/
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.7);
+  }
+}
+
+.live-dot {
+  animation: live-pulse 2.4s ease-in-out infinite;
+}
+
+/* Underline that draws in on hover. Cheap, and it makes the nav feel answerable. */
+.link-draw {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  background-size: 0% 1.5px;
+  transition: background-size 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.link-draw:hover,
+.link-draw:focus-visible {
+  background-size: 100% 1.5px;
+}
+
+/* The search dialog. Native <dialog>, so Escape and focus trapping are free. */
+dialog.cmdk::backdrop {
+  background: rgb(0 0 0 / 0.45);
+  backdrop-filter: blur(2px);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -93,5 +164,9 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+  /* `backwards` fill would otherwise hold these cells at opacity 0 forever. */
+  .unit-cell {
+    animation: none !important;
   }
 }

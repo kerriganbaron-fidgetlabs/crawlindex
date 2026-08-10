@@ -26,6 +26,12 @@ decided**. Most operators never formed a view; their CDN or their publishing pla
 shipped a default and they inherited it. Grouping blocking rates by edge network and
 platform makes that visible, and nobody else publishes it.
 
+The second finding is the **policy gap**. robots.txt is a published promise; what a server
+does when a crawler carrying an AI user agent actually knocks is a separate fact. Every
+other index in this category publishes the first. This one has measured both on every
+domain since the first crawl, and roughly one site in seven permits GPTBot in robots.txt
+and refuses it at the server.
+
 ## The rules that make the numbers trustworthy
 
 Enforced by `tests/`, not by convention. Do not relax them.
@@ -35,7 +41,10 @@ Enforced by `tests/`, not by convention. Do not relax them.
 2. **Unobservable is `null`, never 0**, and excluded from every aggregate.
 3. **A measurement *we* failed to take is never charged to the site.** When the control
    request meets a bot wall, body-derived checks are marked unavailable and the total is
-   renormalised, flagged `partial`, and kept out of leaderboards.
+   renormalised, flagged `partial`, and kept out of leaderboards. This covers the quiet
+   case too: a homepage answering 200 with 2KB and no readable text is an anti-automation
+   stub, not a page, and scoring it once put twenty regional Amazon domains at the bottom
+   of the leaderboard on the strength of a placeholder none of them served to a person.
 4. **A change must be the site's, not ours.** Nothing is reported as a change across a
    probe version or a crawl-location change. Improving our own detection, or moving where
    the crawler runs, must never be published as somebody else changing their policy.
@@ -52,7 +61,8 @@ restrictive operators from an index about restrictiveness would bias every figur
 GitHub Actions (02:30 UTC)
   -> pnpm test          fail here and nothing is published
   -> pnpm seed          Mondays only, refreshes Tranco ranks
-  -> pnpm crawl         ~40 min, writes data/
+  -> pnpm intake        adds submitted domains from GitHub issues
+  -> pnpm crawl         ~50 min, writes data/
   -> pnpm build         a dataset that cannot build is not published
   -> opens a PR, merges it
        -> Vercel deploys main
@@ -71,19 +81,32 @@ git, and the site is static.
 lib/
   agents.ts        version-pinned AI crawler registry
   robots.ts        RFC 9309 parser, group-aware, longest-match
-  probe.ts         the 5-request probe
+  probe.ts         the 6-request probe
+  corpus-rules.ts  which domains belong in the index. Pure, no side effects
   fingerprints.ts  platform and CDN detection from bytes already fetched
-  score.ts         the rubric, a pure function
-  dataset.ts       reads data/, recomputes every score on load
-  report.ts        monthly reports, templated so they stay citable
+  score.ts         the rubric, a pure function, plus the stub-response rule
+  facets.ts        policy posture, access archetype, the policy gap, percentile
+  entities.ts      one row per operator in ranked views. A view, never a filter
+  dataset.ts       reads data/, recomputes every score and facet on load
+  report.ts        monthly reports, sealed on month roll so they stay citable
+  badge.ts         the tiered award mark, rendered as self-contained SVG
+  glossary.ts      one definition per term, used by three surfaces at once
 worker/
   seed.ts          Tranco corpus plus pinned domains
-  crawl.ts         nightly pass, change detection, daily rollup
+  intake.ts        domain submissions, read from GitHub issues
+  crawl.ts         nightly pass, change detection, daily rollup, report sealing
   store.ts         atomic reads and writes of data/
   probe-cli.ts     probe one domain, print it, write nothing
+  entrypoint.ts    guards main() so importing a worker never runs it
 data/               the product. JSON Lines, sorted, git-diffable
-app/                Next.js site, static JSON API, SVG badges, llms.txt, agents.md
+  reports/          sealed monthly reports. Written once, never rewritten
+app/                Next.js site, static JSON API, SVG marks, llms.txt, agents.md
+components/         charts (hand-rolled SVG), motion, search, inline definitions
 ```
+
+Every score line, facet and chart recomputes from archived evidence on load. No model runs
+in the scoring path, and nothing on a page is animated into existence: the server renders
+the true value and motion is only ever added on top of it.
 
 ## Running it
 

@@ -1,7 +1,11 @@
 import Link from 'next/link';
-import type { Cohort, DomainRow } from '../lib/dataset';
+import { getMeta, type Cohort, type DomainRow } from '../lib/dataset';
+import type { EntityGroup } from '../lib/entities';
+import { ARCHETYPE_LABEL, POSTURE_LABEL } from '../lib/facets';
 import { networkLabel, platformLabel } from '../lib/fingerprints';
 import { SITE, citation } from '../lib/site';
+import { CountUp } from './motion';
+import { Explain } from './explain';
 
 export function gradeColor(grade: string | null): string {
   switch (grade) {
@@ -65,13 +69,74 @@ export function ScoreChip({
   );
 }
 
-export function StatTile({ value, label, sub }: { value: string; label: string; sub?: string }) {
+/**
+ * A headline number.
+ *
+ * `value` is the finished, formatted string and is what the server renders. `animateTo` is
+ * optional and only enables a count-up on top of it. The number is never derived from the
+ * animation, which is the rule the whole motion layer is built on: a reader with
+ * JavaScript off, on a slow connection, or printing the page must see the real figure.
+ */
+export function StatTile({
+  value,
+  label,
+  sub,
+  animateTo,
+  suffix = '',
+  termId,
+  tone,
+}: {
+  value: string;
+  label: string;
+  sub?: string;
+  animateTo?: number;
+  suffix?: string;
+  /** Glossary term explaining what this number means. */
+  termId?: string;
+  tone?: 'bad' | 'good';
+}) {
+  const toneClass = tone === 'bad' ? 'text-bad' : tone === 'good' ? 'text-good' : '';
+
   return (
     <div className="border border-rule rounded p-4 bg-raised">
-      <div className="tnum text-3xl font-bold leading-tight">{value}</div>
-      <div className="text-sm font-medium mt-1">{label}</div>
+      <div className={`tnum text-3xl font-bold leading-tight ${toneClass}`}>
+        {animateTo === undefined ? (
+          value
+        ) : (
+          <CountUp value={animateTo} suffix={suffix}>
+            {value}
+          </CountUp>
+        )}
+      </div>
+      <div className="text-sm font-medium mt-1">
+        {termId ? <Explain id={termId}>{label}</Explain> : label}
+      </div>
       {sub ? <div className="text-xs text-muted mt-1">{sub}</div> : null}
     </div>
+  );
+}
+
+/**
+ * Provenance, on every page that carries measured data.
+ *
+ * Which probe took the measurement, which rubric scored it, and when. A number without
+ * these is not checkable a year from now, and being checkable a year from now is the only
+ * durable thing this project has.
+ */
+export function PageMeta() {
+  const meta = getMeta();
+  if (!meta) return null;
+  return (
+    <p className="mt-16 pt-6 border-t border-rule text-xs text-muted font-mono flex flex-wrap gap-x-4 gap-y-1">
+      <span>crawl {meta.generatedAt.slice(0, 16).replace('T', ' ')} UTC</span>
+      <span>probe {meta.probeVersion}</span>
+      <span>rubric {meta.rubricVersion}</span>
+      <span>registry {meta.registryVersion}</span>
+      <span>vantage {meta.vantage}</span>
+      <span className="tnum">
+        {meta.crawl.succeeded.toLocaleString()} of {meta.crawl.attempted.toLocaleString()} reachable
+      </span>
+    </p>
   );
 }
 
@@ -145,6 +210,88 @@ export function DomainTable({
                     .join(' ') || 'none'}
                 </td>
               )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * A ranked table with one row per operator.
+ *
+ * The bottom of the leaderboard used to be twenty regional Amazon storefronts in a row.
+ * Fixing the measurement bug behind that removed those particular rows, but the shape
+ * recurs: one company publishing one policy across twenty country domains is one fact, and
+ * repeating it twenty times turns a ranking about the web into a ranking about that
+ * company.
+ *
+ * Nothing is hidden. The sibling domains are listed inside a disclosure on the row, they
+ * keep their own pages, and they remain in the dataset, the API and the sitemap. This is a
+ * view, applied only where repetition is the problem.
+ */
+export function EntityTable({ groups, caption }: { groups: EntityGroup[]; caption: string }) {
+  if (!groups.length) {
+    return <p className="text-muted">Nothing to show yet. The next crawl will populate this.</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto border border-rule rounded">
+      <table className="w-full text-sm border-collapse">
+        <caption className="sr-only">{caption}</caption>
+        <thead>
+          <tr className="bg-raised text-left">
+            <th scope="col" className="px-3 py-2 font-semibold border-b border-rule w-16">Rank</th>
+            <th scope="col" className="px-3 py-2 font-semibold border-b border-rule">Domain</th>
+            <th scope="col" className="px-3 py-2 font-semibold border-b border-rule w-24">Score</th>
+            <th scope="col" className="px-3 py-2 font-semibold border-b border-rule">Policy</th>
+            <th scope="col" className="px-3 py-2 font-semibold border-b border-rule">Stack</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map(({ lead, others }) => (
+            <tr key={lead.domain} className="border-b border-rule last:border-0 align-top">
+              <td className="px-3 py-2 tnum text-muted">{lead.rank ?? '--'}</td>
+              <td className="px-3 py-2">
+                <Link href={`/site/${lead.domain}`} className="font-mono hover:text-accent underline underline-offset-4">
+                  {lead.domain}
+                </Link>
+                {lead.gap.gap ? (
+                  <span className="ml-2 text-xs text-bad border border-bad rounded px-1">policy gap</span>
+                ) : null}
+                {others.length ? (
+                  <details className="mt-1">
+                    <summary className="text-xs text-muted cursor-pointer hover:text-accent">
+                      and {others.length} more domain{others.length === 1 ? '' : 's'} with the same policy
+                    </summary>
+                    <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+                      {others.map((o) => (
+                        <li key={o.domain}>
+                          <Link
+                            href={`/site/${o.domain}`}
+                            className="font-mono text-xs text-muted hover:text-accent underline underline-offset-4"
+                          >
+                            {o.domain}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
+              </td>
+              <td className="px-3 py-2">
+                <ScoreChip score={lead.score.total} grade={lead.score.grade} partial={lead.score.partial} />
+              </td>
+              <td className="px-3 py-2 text-muted text-xs">
+                {ARCHETYPE_LABEL[lead.archetype]}
+                <span className="block">{POSTURE_LABEL[lead.posture]}</span>
+              </td>
+              <td className="px-3 py-2 text-muted text-xs">
+                {[platformLabel(lead.obs.stack.platform), networkLabel(lead.obs.stack.network)]
+                  .filter(Boolean)
+                  .join(' . ') || 'unidentified'}
+              </td>
             </tr>
           ))}
         </tbody>

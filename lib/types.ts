@@ -2,7 +2,18 @@
 
 export type AccessMap = Record<string, boolean>;
 
-export type ControlKind = 'none' | 'bot-challenge' | 'payment-required' | 'robots-restricted';
+export type ControlKind =
+  | 'none'
+  | 'bot-challenge'
+  | 'payment-required'
+  | 'robots-restricted'
+  /**
+   * The control request answered, but with a body too small to contain a page and with no
+   * extractable text. Amazon answers our crawler with a 2KB stub under an HTTP 200; scoring
+   * that body charged amazon.com eight failures for a page it never served. An unreadable
+   * body is a measurement we failed to take, not a finding about the site.
+   */
+  | 'unreadable';
 
 export type Observation = {
   domain: string;
@@ -92,6 +103,56 @@ export type Observation = {
     feed: boolean;
     canonical: boolean;
     metaNoindex: boolean;
+  };
+
+  /**
+   * Signals added in probe 3.0.0. Optional because records archived by an older probe do
+   * not have them, and inventing a `false` for a question we never asked would publish a
+   * fabricated decline the night the probe was upgraded. Absent means unobserved, and
+   * every score line that reads this group is marked unavailable when it is missing.
+   *
+   * Everything here except `agentCard` is derived from bytes the probe already had in
+   * hand, so the whole group costs one extra request per domain.
+   */
+  signals?: {
+    /**
+     * RSL 1.0 `License:` directive in robots.txt. A site pointing at machine-readable
+     * licence terms is doing something categorically different from blocking, and no
+     * other index records it.
+     */
+    licenseUrl: string | null;
+    /** `<link rel="license">` on the homepage. The HTML-side equivalent. */
+    licenseLink: boolean;
+    /**
+     * Raw `Content-Signal:` directive, e.g. `search=yes,ai-train=no,use=reference`.
+     * Granular consent rather than a binary allow. Cloudflare injects this into managed
+     * robots.txt, which makes its adoption curve a direct measurement of this project's
+     * central claim: that the edge network, not the operator, is setting AI policy.
+     */
+    contentSignal: string | null;
+    /** `crawler-price` header on a 402. What a metered site is actually asking. */
+    crawlerPrice: string | null;
+    /** `/.well-known/agent-card.json`, the A2A agent card. The one extra request. */
+    agentCard: boolean;
+    agentCardBytes: number;
+
+    /** Dateline. Answer engines discount undated pages heavily. */
+    datePublished: boolean;
+    dateModified: boolean;
+    /** JSON-LD `author` or `rel="author"`. */
+    hasAuthor: boolean;
+
+    /**
+     * Extraction profile. Recorded and displayed, deliberately not scored: it describes
+     * how cheap a page is for a retrieval pipeline to chunk, which is a useful thing to
+     * publish and a bad thing to compress into a single grade.
+     */
+    h2Count: number;
+    h3Count: number;
+    listCount: number;
+    tableCount: number;
+    /** Extractable text as a fraction of total bytes. Low means expensive to read. */
+    textRatio: number;
   };
 
   /** Detected from the same bytes. Null means unrecognised, never guessed. */
