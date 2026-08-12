@@ -106,6 +106,46 @@ export default function BadgePage() {
       </section>
 
       <Reveal>
+        <section className="mb-14" aria-labelledby="why">
+          <h2 id="why" className="text-2xl font-bold mb-1">
+            Why it is worth putting up
+          </h2>
+          <p className="text-sm text-muted mb-5 max-w-2xl">
+            An honest answer, including the part most badge programmes leave out.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2 max-w-4xl">
+            {[
+              [
+                'It is a claim somebody can check',
+                'Every other trust mark asks a reader to trust the issuer. This one links to a page showing the exact requests made, what each check awarded, and the archived evidence, and the whole dataset is downloadable. A mark that survives being checked is worth more than one that discourages it.',
+              ],
+              [
+                'It says something almost nobody can say',
+                `${qualifying.toLocaleString()} of ${scored.length.toLocaleString()} measured sites qualify. Being legible to the systems that increasingly answer people's questions is not the default, and the sites that manage it are currently a minority of the most-visited domains on the web.`,
+              ],
+              [
+                'It cannot be bought, and it can be lost',
+                'No application, no fee, no relationship with us. It regenerates from the nightly crawl, so it tracks the site rather than a decision somebody made about the site once. That is the property that makes it mean anything.',
+              ],
+              [
+                'It is a diagnostic even when you do not embed it',
+                'The page behind the mark lists what to change in priority order and shows the site against the median for its own platform and CDN. Most sites are two or three edits from a much better score, and the comparison is usually what tells you whether the gap is yours to close.',
+              ],
+            ].map(([title, body]) => (
+              <div key={title} className="border-l-2 border-accent pl-4">
+                <h3 className="font-bold text-sm">{title}</h3>
+                <p className="text-sm text-muted mt-1 leading-relaxed">{body}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-sm text-muted mt-5 max-w-2xl leading-relaxed">
+            What it will not do: send you traffic. There is no network effect here and no
+            directory to be listed in. Anybody promising that from a badge is selling something.
+          </p>
+        </section>
+      </Reveal>
+
+      <Reveal>
         <section className="mb-14" aria-labelledby="levels">
           <h2 id="levels" className="text-2xl font-bold mb-1">
             The three levels

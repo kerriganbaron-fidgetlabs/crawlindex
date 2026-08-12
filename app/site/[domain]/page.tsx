@@ -3,7 +3,18 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AGENTS, agentSlug, TIER1 } from '../../../lib/agents';
 import { badgeTier, isEmbeddable, TIER_NAME } from '../../../lib/badge';
-import { allDomains, changesFor, getDomain, scoreHistogram } from '../../../lib/dataset';
+import {
+  allDomains,
+  changesFor,
+  cohortMedian,
+  getDomain,
+  indexMedian,
+  MIN_COHORT,
+  networkCohorts,
+  platformCohorts,
+  scoredRows,
+  scoreHistogram,
+} from '../../../lib/dataset';
 import {
   ARCHETYPE_BLURB,
   ARCHETYPE_LABEL,
@@ -18,6 +29,7 @@ import { absoluteUrl, SITE } from '../../../lib/site';
 import { Attribution, PageHeader, PageMeta, ScoreChip } from '../../../components/ui';
 import { BandBars, Histogram } from '../../../components/charts';
 import { BadgeEmbed } from '../../../components/badge-embed';
+import { PeerComparison, type Peer } from '../../../components/peers';
 import { Explain } from '../../../components/explain';
 
 type Props = { params: Promise<{ domain: string }> };
@@ -85,6 +97,50 @@ export default async function DomainPage({ params }: Props) {
   const measuredOn = obs.observedAt.slice(0, 10);
   const tier = badgeTier(score.total, score.grade);
   const sig = obs.signals;
+
+  /**
+   * Peer comparison. Only cohorts this site actually belongs to, and only ones large enough
+   * to have been published, so the comparison is never against a group of three.
+   */
+  const peers: Peer[] = [];
+  if (score.total !== null && !score.partial) {
+    const platformId = obs.stack.platform;
+    const networkId = obs.stack.network;
+
+    if (platformId) {
+      const m = cohortMedian((r) => r.obs.stack.platform, platformId);
+      const size = platformCohorts().find((c) => c.id === platformId)?.observed ?? 0;
+      if (m !== null && size >= MIN_COHORT) {
+        peers.push({
+          kind: 'platform',
+          id: platformId,
+          label: `Sites on ${platformLabel(platformId) ?? platformId}`,
+          median: m,
+          size,
+          href: `/platforms/${platformId}`,
+        });
+      }
+    }
+    if (networkId) {
+      const m = cohortMedian((r) => r.obs.stack.network, networkId);
+      const size = networkCohorts().find((c) => c.id === networkId)?.observed ?? 0;
+      if (m !== null && size >= MIN_COHORT) {
+        peers.push({
+          kind: 'network',
+          id: networkId,
+          label: `Sites behind ${networkLabel(networkId) ?? networkId}`,
+          median: m,
+          size,
+          href: `/networks/${networkId}`,
+        });
+      }
+    }
+    const all = indexMedian();
+    if (all !== null) {
+      peers.push({ kind: 'index', id: 'all', label: 'The whole index', median: all, size: scoredRows().length });
+    }
+  }
+  const behindAny = peers.some((p) => (score.total ?? 0) < p.median);
 
   /**
    * The fix list. Only lines we could actually observe and that did not earn full marks,
@@ -350,6 +406,24 @@ export default async function DomainPage({ params }: Props) {
                 </div>
               );
             })}
+          </div>
+        </section>
+      ) : null}
+
+      {peers.length && score.total !== null ? (
+        <section className="mb-12">
+          <h2 className="text-xl font-bold mb-1">How this compares to its peers</h2>
+          <p className="text-sm text-muted mb-5 max-w-2xl">
+            A score out of 100 is not information on its own. Against the sites running the same
+            platform and sitting behind the same edge network, it is:{' '}
+            {behindAny
+              ? 'this site is behind at least one of its own cohorts, which usually means the gap is its own to close.'
+              : 'this site is at or ahead of every cohort it belongs to, which usually means the ceiling is the platform rather than the site.'}{' '}
+            Cohorts under 25 measured sites are never published, so every comparison here is
+            against a real group.
+          </p>
+          <div className="max-w-2xl">
+            <PeerComparison score={score.total} peers={peers} />
           </div>
         </section>
       ) : null}
