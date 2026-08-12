@@ -113,8 +113,20 @@ export default function MethodologyPage() {
         <h2 className="text-2xl font-bold pt-4">Five rules that keep this honest</h2>
         <ol className="list-decimal pl-6 space-y-3">
           <li>
-            <strong>No model touches a score.</strong> Scoring is arithmetic over recorded
-            observations. Language models are used nowhere in measurement, scoring or report prose.
+            <strong>No model touches a score, and neither does anybody else&apos;s API.</strong>{' '}
+            Scoring is arithmetic over recorded observations. Language models are used nowhere in
+            measurement, scoring or report prose.
+            <span className="block mt-2 text-muted">
+              This rules out something worth naming, because it is a reasonable thing to ask for.
+              Other agent-readiness scores exist, and folding one into this rubric would be easy
+              and would break the whole thing: a score would stop being reproducible from the
+              evidence in this repository, would move when somebody else changed their model, and
+              could not be recomputed for a past date. Every number here has to be derivable from
+              bytes we archived and published. Where an external standard is worth measuring, we
+              measure its <em>adoption</em> from the site&apos;s own bytes, which is why RSL
+              licensing, Content-Signal and agent cards are checks here and no third-party score
+              is.
+            </span>
           </li>
           <li>
             <strong>Unobservable is not zero.</strong> A site we cannot reach has no score and is

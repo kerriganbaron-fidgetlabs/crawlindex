@@ -404,6 +404,35 @@ export function cohortsBy(
   return out.sort((a, b) => b.observed - a.observed);
 }
 
+/**
+ * The median score of a cohort.
+ *
+ * `Cohort.meanScore` exists already, but a median is the right comparison for one site
+ * against a group: a handful of walled sites at 8 drags a mean somewhere no real site sits,
+ * and telling an operator they are "above average" on that basis would be flattery rather
+ * than information.
+ */
+export function cohortMedian(key: (r: DomainRow) => string | null, id: string): number | null {
+  const scores = scoredRows()
+    .filter((r) => key(r) === id)
+    .map((r) => r.score.total as number)
+    .sort((a, b) => a - b);
+  if (!scores.length) return null;
+  const mid = Math.floor(scores.length / 2);
+  const median = scores.length % 2 ? scores[mid] : (scores[mid - 1] + scores[mid]) / 2;
+  return Number(median.toFixed(1));
+}
+
+/** Median across every comparable score in the index. */
+export function indexMedian(): number | null {
+  const scores = scoredRows()
+    .map((r) => r.score.total as number)
+    .sort((a, b) => a - b);
+  if (!scores.length) return null;
+  const mid = Math.floor(scores.length / 2);
+  return Number((scores.length % 2 ? scores[mid] : (scores[mid - 1] + scores[mid]) / 2).toFixed(1));
+}
+
 export const platformCohorts = () => cohortsBy((r) => r.obs.stack.platform);
 export const networkCohorts = () => cohortsBy((r) => r.obs.stack.network);
 export const tldCohorts = () => cohortsBy((r) => r.tld);
