@@ -502,5 +502,259 @@
   "suspectReasons": [
    "Mean score moved 5.63 points, from 68.88 to 63.25."
   ]
+ },
+ {
+  "day": "2026-08-12",
+  "totalDomains": 3665,
+  "observed": 3633,
+  "meanScore": 63.13,
+  "blockingAnyTier1": 649,
+  "blockingAllTier1": 154,
+  "llmsTxt": 442,
+  "agentsMd": 29,
+  "refusedGptbot": 831,
+  "paymentRequired": 11,
+  "perBot": {
+   "GPTBot": 544,
+   "OAI-SearchBot": 256,
+   "ChatGPT-User": 321,
+   "ClaudeBot": 518,
+   "Claude-User": 264,
+   "Claude-SearchBot": 258,
+   "PerplexityBot": 373,
+   "Perplexity-User": 269,
+   "Google-Extended": 472,
+   "Applebot-Extended": 445,
+   "meta-externalagent": 482,
+   "CCBot": 571,
+   "Amazonbot": 434,
+   "Bytespider": 534,
+   "cohere-ai": 375,
+   "MistralAI-User": 258,
+   "YouBot": 325,
+   "DuckAssistBot": 273,
+   "kagi-fetcher": 167,
+   "Diffbot": 376,
+   "Google-NotebookLM": 188,
+   "TavilyBot": 197,
+   "FirecrawlAgent": 207
+  },
+  "perPlatform": {
+   "wordpress": {
+    "total": 298,
+    "blocking": 52
+   },
+   "nextjs": {
+    "total": 283,
+    "blocking": 44
+   },
+   "contentful": {
+    "total": 51,
+    "blocking": 2
+   },
+   "aem": {
+    "total": 132,
+    "blocking": 7
+   },
+   "nuxt": {
+    "total": 56,
+    "blocking": 4
+   },
+   "gatsby": {
+    "total": 11,
+    "blocking": 1
+   },
+   "sitecore": {
+    "total": 10,
+    "blocking": 0
+   },
+   "hubspot": {
+    "total": 80,
+    "blocking": 4
+   },
+   "webflow": {
+    "total": 19,
+    "blocking": 0
+   },
+   "astro": {
+    "total": 21,
+    "blocking": 3
+   },
+   "framer": {
+    "total": 10,
+    "blocking": 0
+   },
+   "wix": {
+    "total": 6,
+    "blocking": 0
+   },
+   "typo3": {
+    "total": 10,
+    "blocking": 0
+   },
+   "drupal": {
+    "total": 115,
+    "blocking": 3
+   },
+   "sanity": {
+    "total": 31,
+    "blocking": 3
+   },
+   "shopify": {
+    "total": 8,
+    "blocking": 0
+   },
+   "salesforce-commerce": {
+    "total": 1,
+    "blocking": 0
+   },
+   "bigcommerce": {
+    "total": 1,
+    "blocking": 0
+   },
+   "storyblok": {
+    "total": 5,
+    "blocking": 0
+   },
+   "angular": {
+    "total": 7,
+    "blocking": 1
+   },
+   "ghost": {
+    "total": 1,
+    "blocking": 1
+   },
+   "remix": {
+    "total": 3,
+    "blocking": 1
+   },
+   "joomla": {
+    "total": 4,
+    "blocking": 0
+   },
+   "sveltekit": {
+    "total": 4,
+    "blocking": 2
+   },
+   "magento": {
+    "total": 1,
+    "blocking": 1
+   },
+   "squarespace": {
+    "total": 1,
+    "blocking": 0
+   },
+   "woocommerce": {
+    "total": 2,
+    "blocking": 0
+   }
+  },
+  "perNetwork": {
+   "cloudflare": {
+    "total": 1075,
+    "blocking": 185
+   },
+   "fastly": {
+    "total": 209,
+    "blocking": 54
+   },
+   "cloudfront": {
+    "total": 421,
+    "blocking": 81
+   },
+   "alibaba": {
+    "total": 37,
+    "blocking": 5
+   },
+   "azure-frontdoor": {
+    "total": 27,
+    "blocking": 1
+   },
+   "akamai": {
+    "total": 263,
+    "blocking": 41
+   },
+   "imperva": {
+    "total": 13,
+    "blocking": 2
+   },
+   "google": {
+    "total": 157,
+    "blocking": 5
+   },
+   "vercel": {
+    "total": 49,
+    "blocking": 3
+   },
+   "netlify": {
+    "total": 24,
+    "blocking": 1
+   },
+   "varnish": {
+    "total": 40,
+    "blocking": 12
+   },
+   "bunny": {
+    "total": 12,
+    "blocking": 0
+   },
+   "tencent": {
+    "total": 1,
+    "blocking": 0
+   },
+   "sucuri": {
+    "total": 1,
+    "blocking": 0
+   }
+  },
+  "attempted": 5006,
+  "succeeded": 3633,
+  "crawled": 3665,
+  "carried": 0,
+  "partial": false,
+  "policyGaps": 541,
+  "quadrant": {
+   "gap": 541,
+   "openHonest": 2548,
+   "blockedHonest": 216,
+   "declaredOnly": 193
+  },
+  "perPosture": {
+   "absent": 960,
+   "inherited": 1808,
+   "blanket": 156,
+   "deliberate": 709
+  },
+  "perArchetype": {
+   "undeclared": 960,
+   "open": 2024,
+   "walled": 154,
+   "no-training": 230,
+   "selective": 215,
+   "assistant-only": 39,
+   "metered": 11
+  },
+  "histogram": [
+   0,
+   9,
+   22,
+   47,
+   323,
+   744,
+   787,
+   461,
+   245,
+   11
+  ],
+  "signalsObserved": 3633,
+  "declaredLicence": 15,
+  "contentSignal": 143,
+  "agentCard": 8,
+  "dateline": 456,
+  "authorship": 317,
+  "suspect": true,
+  "suspectReasons": [
+   "Mean score moved 5.75 points, from 68.88 to 63.13."
+  ]
  }
 ]
