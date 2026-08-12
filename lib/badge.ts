@@ -228,8 +228,17 @@ function seal(b: BadgeInput, theme: BadgeTheme): string {
    * `side="right"`, is SVG 2 and unevenly supported, and a mark that renders upside down in
    * somebody's email client is worse than one that is harder to author.
    */
+  /**
+   * The two arcs sit at different radii, and the difference is load-bearing.
+   *
+   * Text on the top arc grows *outward* from its baseline, away from the middle, so it can
+   * sit close in. Text on the bottom arc grows *inward*, straight at the percentile line
+   * below the score. With both arcs at r=62 the date and "TOP n% OF THE WEB" ended up one
+   * pixel apart and read as a single smudge. A geometry check computed that gap and I
+   * accepted it; rendering the thing at 2x is what actually showed the collision.
+   */
   const topArc = `M ${c - 62} ${c} a 62 62 0 0 1 124 0`;
-  const bottomArc = `M ${c - 62} ${c} a 62 62 0 0 0 124 0`;
+  const bottomArc = `M ${c - 71} ${c} a 71 71 0 0 0 142 0`;
 
   return wrap(
     S,
@@ -255,7 +264,7 @@ function seal(b: BadgeInput, theme: BadgeTheme): string {
     ${wordmark(c, c - 26, 15, p)}
     <text x="${c}" y="${c + 6}" fill="${tier}" font-family="${FONT}" font-size="11.5" font-weight="700" letter-spacing="0.4">${esc(TIER_NAME[t].toUpperCase())}</text>
     <text x="${c}" y="${c + 40}" fill="${p.ink}" font-family="${FONT}" font-size="34" font-weight="700">${t === 'unscored' ? '--' : b.score}</text>
-    <text x="${c}" y="${c + 53}" fill="${p.dim}" font-family="${FONT}" font-size="8.5" font-weight="600" letter-spacing="0.4">${
+    <text x="${c}" y="${c + 50}" fill="${p.dim}" font-family="${FONT}" font-size="8.5" font-weight="600" letter-spacing="0.4">${
       b.percentile !== null ? `TOP ${Math.max(1, 100 - b.percentile)}% OF THE WEB` : 'OUT OF 100'
     }</text>
   </g>`,
