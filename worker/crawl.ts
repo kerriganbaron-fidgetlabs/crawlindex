@@ -236,14 +236,26 @@ async function main() {
    * second bad night in a row is measured against known-good figures rather than against
    * the first bad night.
    */
-  const baseline = lastTrustworthy(readStats());
+  const priorStats = readStats();
+  const baseline = lastTrustworthy(priorStats);
+  // The run immediately before this one, quarantined or not. Distinct from the baseline,
+  // and it is what lets a legitimate step change escape a stuck quarantine.
+  const lastRun = priorStats.length ? priorStats[priorStats.length - 1] : null;
+
   const verdict = force
-    ? { suspect: false, reasons: [] }
+    ? { suspect: false, reasons: [], baselineMoved: false }
     : assessRun(baseline, stats, {
         attempted: targets.length,
         succeeded: ok,
         scoreChanges: changes.filter((c) => c.kind === 'score').length,
+        lastRun,
       });
+
+  if (verdict.baselineMoved) {
+    console.log(`\nBaseline moved. ${verdict.reasons.join(' ')}`);
+    stats.baselineMoved = true;
+    stats.suspectReasons = verdict.reasons;
+  }
 
   if (verdict.suspect) {
     stats.suspect = true;

@@ -186,6 +186,20 @@ export function upsertStats(entry: DailyStats, opts: { force?: boolean } = {}) {
   writeAtomic('stats.json', JSON.stringify(next, null, 1) + '\n');
 }
 
+/**
+ * Replace the whole series.
+ *
+ * Only `worker/reassess.ts` uses this, to rewrite health verdicts after the gate itself
+ * changes. Deliberately separate from `upsertStats`, which guards a single day against
+ * being downgraded: that guard is about protecting measurements, and this rewrites
+ * judgements about measurements. Conflating the two would let a bulk write bypass the
+ * downgrade protection.
+ */
+export function writeStatsSeries(series: DailyStats[]) {
+  const sorted = [...series].sort((a, b) => a.day.localeCompare(b.day));
+  writeAtomic('stats.json', JSON.stringify(sorted, null, 1) + '\n');
+}
+
 // --- sealed monthly reports -------------------------------------------------
 
 /**

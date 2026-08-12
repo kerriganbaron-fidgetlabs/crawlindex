@@ -116,6 +116,71 @@ describe('the first run of a series', () => {
   });
 });
 
+/**
+ * The stuck-quarantine bug, caught in production two days after the gate shipped.
+ *
+ * Bumping the rubric added five score lines that most sites score zero on, which
+ * legitimately dropped the mean 5.6 points. Every drift check compares against the last day
+ * that *passed*, so the step never went away: two consecutive nights were quarantined and
+ * every night after them would have been, with the site serving stale data indefinitely.
+ */
+describe('escaping a stuck quarantine', () => {
+  const before = day({ day: '2026-08-10', meanScore: 68.88, observed: 3646 });
+  const quarantined = day({ day: '2026-08-11', meanScore: 63.25, observed: 3635, suspect: true });
+
+  it('quarantines the first run that steps', () => {
+    const v = assessRun(before, quarantined, healthy);
+    expect(v.suspect).toBe(true);
+    expect(v.reasons.join(' ')).toMatch(/Mean score moved/);
+  });
+
+  it('accepts the second run when it reproduces the first', () => {
+    const repeat = day({ day: '2026-08-12', meanScore: 63.13, observed: 3633 });
+    const v = assessRun(before, repeat, { ...healthy, lastRun: quarantined });
+    expect(v.suspect).toBe(false);
+    expect(v.baselineMoved).toBe(true);
+    expect(v.reasons.join(' ')).toMatch(/Accepted as the new baseline/);
+  });
+
+  it('keeps quarantining while the figures are still moving', () => {
+    // A fault that has not settled does not agree with itself.
+    const stillFalling = day({ day: '2026-08-12', meanScore: 52, observed: 3600 });
+    const v = assessRun(before, stillFalling, { ...healthy, lastRun: quarantined });
+    expect(v.suspect).toBe(true);
+    expect(v.baselineMoved).toBeUndefined();
+  });
+
+  it('does not escape when the previous run passed', () => {
+    // The hatch only exists to get out of a quarantine. A single anomalous night after a
+    // good one is still an anomalous night.
+    const stepped = day({ day: '2026-08-12', meanScore: 63.2 });
+    const v = assessRun(before, stepped, { ...healthy, lastRun: before });
+    expect(v.suspect).toBe(true);
+  });
+
+  /**
+   * The hole this nearly shipped with. Absolute checks and drift checks originally shared
+   * one array, so two consecutive zero-observation runs would have "agreed" and been waved
+   * through as a new normal.
+   */
+  it('never accepts a run that is broken on its own terms, however consistent', () => {
+    const deadOne = day({ day: '2026-08-11', observed: 0, meanScore: null, suspect: true });
+    const deadTwo = day({ day: '2026-08-12', observed: 0, meanScore: null });
+    const v = assessRun(before, deadTwo, { ...healthy, scoreChanges: 0, lastRun: deadOne });
+    expect(v.suspect).toBe(true);
+    expect(v.baselineMoved).toBeUndefined();
+    expect(v.reasons.join(' ')).toMatch(/Nothing was observed/);
+  });
+
+  it('never accepts an implausible volume of change, however consistent', () => {
+    const churnOne = day({ day: '2026-08-11', suspect: true });
+    const churnTwo = day({ day: '2026-08-12' });
+    const v = assessRun(before, churnTwo, { ...healthy, scoreChanges: 900, lastRun: churnOne });
+    expect(v.suspect).toBe(true);
+    expect(v.reasons.join(' ')).toMatch(/score changes/);
+  });
+});
+
 describe('choosing which day to quote', () => {
   it('skips back over a quarantined day', () => {
     const good = day({ day: '2026-08-12' });

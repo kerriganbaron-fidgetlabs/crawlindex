@@ -93,6 +93,12 @@ export type DailyStats = {
    */
   suspect?: boolean;
   suspectReasons?: string[];
+  /**
+   * This run tripped the gate and was accepted anyway, because the run before it tripped
+   * for the same reasons and this one reproduced them. Recorded rather than hidden: a
+   * baseline that moved is a fact about the series that a reader should be able to see.
+   */
+  baselineMoved?: boolean;
   blockingAnyTier1: number;
   blockingAllTier1: number;
   llmsTxt: number;
@@ -293,6 +299,19 @@ export const latestStatsRaw = (): DailyStats | null => {
 export const activeQuarantine = (): DailyStats | null => {
   const latest = latestStatsRaw();
   return latest?.suspect ? latest : null;
+};
+
+/**
+ * The most recent run tripped the gate and was accepted anyway, because the run before it
+ * tripped the same way and this one reproduced it.
+ *
+ * Surfaced rather than swallowed. The escape hatch exists so a legitimate step change does
+ * not freeze the site on stale data forever, but an automatic override that leaves no trace
+ * is how a safety mechanism quietly stops meaning anything.
+ */
+export const acceptedBaselineMove = (): DailyStats | null => {
+  const latest = latestStatsRaw();
+  return latest?.baselineMoved ? latest : null;
 };
 export const allChanges = (): ChangeRecord[] => load().changes;
 export const changesFor = (d: string): ChangeRecord[] => load().changes.filter((c) => c.domain === d);

@@ -105,6 +105,45 @@ jobs:
       - name: Verify archived records still rescore correctly
         run: pnpm verify:rescore
 
+      # A quarantine is not a failure: the crawl succeeds, the job goes green, and without
+      # this nothing tells anybody. That was a real gap. The one genuinely new silent
+      # failure mode had no notification while the loud one already had two.
+      - name: Open an issue if the run was quarantined
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          SUSPECT=$(node -e "
+            const s=require('./data/stats.json');
+            const last=s[s.length-1];
+            if(!last||!last.suspect){process.exit(0)}
+            console.log(JSON.stringify({day:last.day,reasons:last.suspectReasons||[]}));
+          ")
+          if [ -z "$SUSPECT" ]; then
+            echo "Run passed the health check." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          DAY=$(echo "$SUSPECT" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).day))")
+          REASONS=$(echo "$SUSPECT" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).reasons.map(r=>'- '+r).join('\n')))")
+
+          BODY="The crawl on ${DAY} was quarantined. Its figures are not published and the site is serving the last day that passed.
+
+          ${REASONS}
+
+          The observations were still written, so the evidence is in the repository. If the shift is legitimate, the next run will reproduce it and the baseline moves automatically. If it does not, re-run the workflow with \`force: true\` once the cause is understood.
+
+          Run: ${RUN_URL}"
+
+          EXISTING=$(gh issue list --label crawl-quarantine --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "Crawl quarantined" --label crawl-quarantine --body "$BODY"
+          fi
+          echo "$BODY" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Verify the dataset builds before publishing it
         run: pnpm build
 
