@@ -752,9 +752,9 @@
   "agentCard": 8,
   "dateline": 456,
   "authorship": 317,
-  "suspect": true,
   "suspectReasons": [
-   "Mean score moved 5.75 points, from 68.88 to 63.13."
-  ]
+   "Accepted as the new baseline. The previous run was quarantined and this one reproduces it (3,633 measured, mean 63.13), so the shift is being treated as real rather than as a fault. What would otherwise have tripped the gate: Mean score moved 5.75 points, from 68.88 to 63.13."
+  ],
+  "baselineMoved": true
  }
 ]

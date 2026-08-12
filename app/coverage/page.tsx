@@ -194,9 +194,23 @@ export default function CoveragePage() {
               </li>
             ))}
           </ul>
-          <p className="text-muted leading-relaxed">
+          <p className="text-muted leading-relaxed mb-4">
             Recovery is a re-run. Nothing is deleted and nothing is hidden, and the quarantine
             clears the moment a clean crawl replaces the day.
+          </p>
+          <p className="text-muted leading-relaxed">
+            <strong className="text-ink">There is one automatic way out, and it exists because
+            of a mistake.</strong>{' '}
+            Every check compares against the last day that passed, which is right for a fault
+            that persists and wrong for a one-time step. Changing the rubric legitimately moved
+            the mean score five points, and the gate then quarantined every night against a
+            baseline that no longer existed. A gate that can never unstick itself is a gate
+            somebody eventually switches off, which is worse than having none. So a run that
+            reproduces the previous quarantined run within a tight tolerance is accepted, the
+            baseline moves, and the site says so. A fault that is still changing does not agree
+            with itself and keeps tripping, and a run that is broken on its own terms, having
+            measured nothing or produced an impossible volume of change, is never accepted
+            however consistently it repeats.
           </p>
         </section>
       </Reveal>

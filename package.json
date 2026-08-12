@@ -16,6 +16,7 @@
     "probe": "tsx worker/probe-cli.ts",
     "verify:rescore": "tsx worker/verify-rescore.ts",
     "restats": "tsx worker/restats.ts",
+    "reassess": "tsx worker/reassess.ts",
     "prebuild": "node scripts/publish-data.mjs"
   },
   "dependencies": {

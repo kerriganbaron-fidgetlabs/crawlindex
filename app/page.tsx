@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { AGENTS, agentSlug, TIER1 } from '../lib/agents';
 import { BANDS, examplesIn, GRADE_MEANING } from '../lib/bands';
 import {
+  acceptedBaselineMove,
   activeQuarantine,
   allChanges,
   latestStats,
@@ -41,6 +42,7 @@ const pctStr = (n: number, d: number) => `${Math.round(pct(n, d))}%`;
 export default function HomePage() {
   const stats = latestStats();
   const quarantine = activeQuarantine();
+  const baselineMove = acceptedBaselineMove();
   const observed = stats?.observed ?? 0;
 
   const changes = allChanges().slice(0, 6);
@@ -147,6 +149,22 @@ export default function HomePage() {
             <Link href="/coverage" className="text-accent underline underline-offset-4">
               How this check works
             </Link>
+          </p>
+        </section>
+      ) : baselineMove ? (
+        <section className="mb-10 border-l-4 border-rule bg-raised p-4" aria-labelledby="baseline">
+          <h2 id="baseline" className="font-semibold mb-1">
+            The figures stepped, and the step was accepted
+          </h2>
+          <p className="text-sm text-muted">
+            One run tripped the health check and the next reproduced it, so the shift is being
+            treated as real rather than as a fault and the comparison baseline has moved. Recorded
+            here because an automatic override that leaves no trace is how a safety check quietly
+            stops meaning anything.{' '}
+            <Link href="/coverage#health" className="text-accent underline underline-offset-4">
+              How this works
+            </Link>
+            .
           </p>
         </section>
       ) : null}
