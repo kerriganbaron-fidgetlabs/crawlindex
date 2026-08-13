@@ -756,5 +756,255 @@
    "Accepted as the new baseline. The previous run was quarantined and this one reproduces it (3,633 measured, mean 63.13), so the shift is being treated as real rather than as a fault. What would otherwise have tripped the gate: Mean score moved 5.75 points, from 68.88 to 63.13."
   ],
   "baselineMoved": true
+ },
+ {
+  "day": "2026-08-13",
+  "totalDomains": 3660,
+  "observed": 3639,
+  "meanScore": 63.29,
+  "blockingAnyTier1": 651,
+  "blockingAllTier1": 154,
+  "llmsTxt": 442,
+  "agentsMd": 29,
+  "refusedGptbot": 832,
+  "paymentRequired": 12,
+  "perBot": {
+   "GPTBot": 546,
+   "OAI-SearchBot": 258,
+   "ChatGPT-User": 321,
+   "ClaudeBot": 521,
+   "Claude-User": 264,
+   "Claude-SearchBot": 258,
+   "PerplexityBot": 375,
+   "Perplexity-User": 269,
+   "Google-Extended": 473,
+   "Applebot-Extended": 448,
+   "meta-externalagent": 484,
+   "CCBot": 574,
+   "Amazonbot": 435,
+   "Bytespider": 535,
+   "cohere-ai": 374,
+   "MistralAI-User": 258,
+   "YouBot": 327,
+   "DuckAssistBot": 273,
+   "kagi-fetcher": 167,
+   "Diffbot": 376,
+   "Google-NotebookLM": 188,
+   "TavilyBot": 197,
+   "FirecrawlAgent": 207
+  },
+  "perPlatform": {
+   "wordpress": {
+    "total": 300,
+    "blocking": 53
+   },
+   "nextjs": {
+    "total": 286,
+    "blocking": 43
+   },
+   "contentful": {
+    "total": 49,
+    "blocking": 2
+   },
+   "aem": {
+    "total": 133,
+    "blocking": 7
+   },
+   "nuxt": {
+    "total": 56,
+    "blocking": 4
+   },
+   "gatsby": {
+    "total": 11,
+    "blocking": 1
+   },
+   "sitecore": {
+    "total": 10,
+    "blocking": 1
+   },
+   "webflow": {
+    "total": 19,
+    "blocking": 0
+   },
+   "hubspot": {
+    "total": 81,
+    "blocking": 4
+   },
+   "framer": {
+    "total": 10,
+    "blocking": 0
+   },
+   "astro": {
+    "total": 21,
+    "blocking": 3
+   },
+   "wix": {
+    "total": 6,
+    "blocking": 0
+   },
+   "typo3": {
+    "total": 10,
+    "blocking": 0
+   },
+   "drupal": {
+    "total": 116,
+    "blocking": 3
+   },
+   "sanity": {
+    "total": 31,
+    "blocking": 3
+   },
+   "shopify": {
+    "total": 8,
+    "blocking": 0
+   },
+   "salesforce-commerce": {
+    "total": 1,
+    "blocking": 0
+   },
+   "bigcommerce": {
+    "total": 1,
+    "blocking": 0
+   },
+   "storyblok": {
+    "total": 5,
+    "blocking": 0
+   },
+   "angular": {
+    "total": 7,
+    "blocking": 1
+   },
+   "ghost": {
+    "total": 1,
+    "blocking": 1
+   },
+   "remix": {
+    "total": 3,
+    "blocking": 1
+   },
+   "joomla": {
+    "total": 4,
+    "blocking": 0
+   },
+   "sveltekit": {
+    "total": 4,
+    "blocking": 1
+   },
+   "magento": {
+    "total": 1,
+    "blocking": 1
+   },
+   "squarespace": {
+    "total": 1,
+    "blocking": 0
+   },
+   "woocommerce": {
+    "total": 2,
+    "blocking": 0
+   }
+  },
+  "perNetwork": {
+   "fastly": {
+    "total": 215,
+    "blocking": 53
+   },
+   "cloudflare": {
+    "total": 1079,
+    "blocking": 187
+   },
+   "cloudfront": {
+    "total": 420,
+    "blocking": 82
+   },
+   "alibaba": {
+    "total": 37,
+    "blocking": 5
+   },
+   "azure-frontdoor": {
+    "total": 27,
+    "blocking": 1
+   },
+   "akamai": {
+    "total": 265,
+    "blocking": 42
+   },
+   "imperva": {
+    "total": 13,
+    "blocking": 2
+   },
+   "google": {
+    "total": 158,
+    "blocking": 5
+   },
+   "vercel": {
+    "total": 49,
+    "blocking": 3
+   },
+   "netlify": {
+    "total": 25,
+    "blocking": 1
+   },
+   "varnish": {
+    "total": 40,
+    "blocking": 12
+   },
+   "bunny": {
+    "total": 12,
+    "blocking": 0
+   },
+   "tencent": {
+    "total": 1,
+    "blocking": 0
+   },
+   "sucuri": {
+    "total": 1,
+    "blocking": 0
+   }
+  },
+  "attempted": 5006,
+  "succeeded": 3639,
+  "crawled": 3660,
+  "carried": 0,
+  "partial": false,
+  "policyGaps": 543,
+  "quadrant": {
+   "gap": 543,
+   "openHonest": 2550,
+   "blockedHonest": 217,
+   "declaredOnly": 194
+  },
+  "perPosture": {
+   "absent": 949,
+   "inherited": 1822,
+   "blanket": 156,
+   "deliberate": 712
+  },
+  "perArchetype": {
+   "undeclared": 948,
+   "open": 2039,
+   "walled": 154,
+   "no-training": 230,
+   "selective": 215,
+   "assistant-only": 41,
+   "metered": 12
+  },
+  "histogram": [
+   0,
+   11,
+   21,
+   51,
+   305,
+   746,
+   780,
+   465,
+   248,
+   11
+  ],
+  "signalsObserved": 3639,
+  "declaredLicence": 15,
+  "contentSignal": 144,
+  "agentCard": 8,
+  "dateline": 458,
+  "authorship": 321
  }
 ]
