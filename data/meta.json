@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-09-04T07:54:28.068Z",
+  "generatedAt": "2026-09-05T07:36:42.766Z",
   "vantage": "gha-ubuntu",
   "probeVersion": "3.0.0",
   "rubricVersion": "2.0.0",
   "registryVersion": "1.0.0",
   "crawl": {
     "attempted": 5006,
-    "succeeded": 3665,
-    "failed": 1341,
-    "durationMs": 1938324
+    "succeeded": 3668,
+    "failed": 1338,
+    "durationMs": 1988160
   }
 }
