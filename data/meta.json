@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-08T07:54:50.223Z",
+  "generatedAt": "2026-09-09T08:03:43.800Z",
   "vantage": "gha-ubuntu",
   "probeVersion": "3.0.0",
   "rubricVersion": "2.0.0",
@@ -8,6 +8,6 @@
     "attempted": 5006,
     "succeeded": 3663,
     "failed": 1343,
-    "durationMs": 1948274
+    "durationMs": 1968881
   }
 }
