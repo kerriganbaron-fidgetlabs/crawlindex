@@ -15116,5 +15116,251 @@
   "agentCard": 9,
   "dateline": 464,
   "authorship": 320
+ },
+ {
+  "day": "2026-10-12",
+  "totalDomains": 3718,
+  "observed": 3685,
+  "meanScore": 64.31,
+  "blockingAnyTier1": 581,
+  "blockingAllTier1": 152,
+  "llmsTxt": 511,
+  "agentsMd": 25,
+  "refusedGptbot": 841,
+  "paymentRequired": 9,
+  "perBot": {
+   "GPTBot": 473,
+   "OAI-SearchBot": 253,
+   "ChatGPT-User": 307,
+   "ClaudeBot": 449,
+   "Claude-User": 260,
+   "Claude-SearchBot": 254,
+   "PerplexityBot": 355,
+   "Perplexity-User": 265,
+   "Google-Extended": 390,
+   "Applebot-Extended": 378,
+   "meta-externalagent": 408,
+   "CCBot": 495,
+   "Amazonbot": 356,
+   "Bytespider": 473,
+   "cohere-ai": 377,
+   "MistralAI-User": 255,
+   "YouBot": 330,
+   "DuckAssistBot": 268,
+   "kagi-fetcher": 165,
+   "Diffbot": 387,
+   "Google-NotebookLM": 187,
+   "TavilyBot": 196,
+   "FirecrawlAgent": 214
+  },
+  "perPlatform": {
+   "nextjs": {
+    "total": 311,
+    "blocking": 49
+   },
+   "wordpress": {
+    "total": 309,
+    "blocking": 43
+   },
+   "aem": {
+    "total": 143,
+    "blocking": 6
+   },
+   "contentful": {
+    "total": 55,
+    "blocking": 3
+   },
+   "nuxt": {
+    "total": 55,
+    "blocking": 1
+   },
+   "gatsby": {
+    "total": 11,
+    "blocking": 0
+   },
+   "sitecore": {
+    "total": 10,
+    "blocking": 0
+   },
+   "hubspot": {
+    "total": 83,
+    "blocking": 5
+   },
+   "webflow": {
+    "total": 14,
+    "blocking": 1
+   },
+   "astro": {
+    "total": 25,
+    "blocking": 3
+   },
+   "framer": {
+    "total": 9,
+    "blocking": 0
+   },
+   "wix": {
+    "total": 5,
+    "blocking": 0
+   },
+   "typo3": {
+    "total": 9,
+    "blocking": 0
+   },
+   "drupal": {
+    "total": 108,
+    "blocking": 4
+   },
+   "sanity": {
+    "total": 31,
+    "blocking": 3
+   },
+   "salesforce-commerce": {
+    "total": 1,
+    "blocking": 0
+   },
+   "shopify": {
+    "total": 7,
+    "blocking": 0
+   },
+   "bigcommerce": {
+    "total": 1,
+    "blocking": 0
+   },
+   "storyblok": {
+    "total": 8,
+    "blocking": 0
+   },
+   "ghost": {
+    "total": 2,
+    "blocking": 1
+   },
+   "angular": {
+    "total": 7,
+    "blocking": 1
+   },
+   "remix": {
+    "total": 3,
+    "blocking": 1
+   },
+   "sveltekit": {
+    "total": 5,
+    "blocking": 2
+   },
+   "joomla": {
+    "total": 3,
+    "blocking": 0
+   },
+   "squarespace": {
+    "total": 1,
+    "blocking": 0
+   },
+   "woocommerce": {
+    "total": 1,
+    "blocking": 0
+   }
+  },
+  "perNetwork": {
+   "cloudflare": {
+    "total": 1102,
+    "blocking": 114
+   },
+   "fastly": {
+    "total": 217,
+    "blocking": 54
+   },
+   "cloudfront": {
+    "total": 438,
+    "blocking": 91
+   },
+   "alibaba": {
+    "total": 31,
+    "blocking": 1
+   },
+   "azure-frontdoor": {
+    "total": 27,
+    "blocking": 1
+   },
+   "akamai": {
+    "total": 278,
+    "blocking": 42
+   },
+   "vercel": {
+    "total": 55,
+    "blocking": 3
+   },
+   "imperva": {
+    "total": 11,
+    "blocking": 1
+   },
+   "google": {
+    "total": 160,
+    "blocking": 4
+   },
+   "netlify": {
+    "total": 24,
+    "blocking": 1
+   },
+   "varnish": {
+    "total": 34,
+    "blocking": 8
+   },
+   "bunny": {
+    "total": 12,
+    "blocking": 0
+   },
+   "sucuri": {
+    "total": 2,
+    "blocking": 0
+   },
+   "tencent": {
+    "total": 1,
+    "blocking": 0
+   }
+  },
+  "attempted": 5006,
+  "succeeded": 3685,
+  "crawled": 3718,
+  "carried": 0,
+  "partial": false,
+  "policyGaps": 637,
+  "quadrant": {
+   "gap": 637,
+   "openHonest": 2575,
+   "blockedHonest": 135,
+   "declaredOnly": 205
+  },
+  "perPosture": {
+   "blanket": 153,
+   "absent": 1008,
+   "deliberate": 668,
+   "inherited": 1856
+  },
+  "perArchetype": {
+   "walled": 152,
+   "undeclared": 1008,
+   "open": 2096,
+   "no-training": 176,
+   "selective": 203,
+   "assistant-only": 41,
+   "metered": 9
+  },
+  "histogram": [
+   0,
+   3,
+   17,
+   34,
+   281,
+   750,
+   764,
+   470,
+   298,
+   16
+  ],
+  "signalsObserved": 3685,
+  "declaredLicence": 16,
+  "contentSignal": 93,
+  "agentCard": 9,
+  "dateline": 467,
+  "authorship": 322
  }
 ]
